@@ -1,2 +1,2 @@
-import { PortalShell } from "@/components/nivaran/portal-shell";import { ReviewerQueue } from "@/components/nivaran/reviewer-queue";
-export default function QueuePage(){return <PortalShell role="reviewer" title="Review complaints"><div className="mb-6"><p className="eyebrow">Persisted cases</p><h2 className="mt-2 text-3xl font-bold tracking-[-.04em]">Review queue</h2><p className="mt-2 text-sm text-muted-foreground">Recommendations remain suggestions until an authorized reviewer confirms the handoff.</p></div><ReviewerQueue/></PortalShell>}
+import { PortalShell } from "@/components/nivaran/portal-shell";import { ReviewerQueue } from "@/components/nivaran/reviewer-queue";import { ReviewerQueueIntro } from "@/components/nivaran/translated-page-intros";
+export default function QueuePage(){return <PortalShell role="reviewer" title="Review complaints"><ReviewerQueueIntro/><ReviewerQueue/></PortalShell>}

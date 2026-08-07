@@ -8,11 +8,12 @@ import { api } from "@/lib/api";
 import { Locale, useLanguage } from "./language-provider";
 
 export function Brand({ compact = false }: { compact?: boolean }) {
+  const { tr } = useLanguage();
   return (
     <Link
       href="/"
       className="group flex items-center gap-3"
-      aria-label="Nivaran home"
+      aria-label={tr("Nivaran home")}
     >
       <span className="grid size-9 place-items-center bg-ink text-sm font-black text-white transition-transform group-hover:-rotate-3 group-hover:scale-105">
         नि
@@ -23,7 +24,7 @@ export function Brand({ compact = false }: { compact?: boolean }) {
         </span>
         {!compact && (
           <span className="block text-[10px] uppercase tracking-[.15em] text-muted-foreground">
-            Community redressal
+            {tr("Community redressal")}
           </span>
         )}
       </span>
@@ -31,15 +32,15 @@ export function Brand({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function LanguagePicker() {
-  const { locale, setLocale } = useLanguage();
+export function LanguagePicker() {
+  const { locale, setLocale, tr } = useLanguage();
   const options: { code: Locale; label: string }[] = [
     { code: "en", label: "EN" },
     { code: "hi", label: "हिन्दी" },
     { code: "mr", label: "मराठी" },
   ];
   return (
-    <div className="flex border" role="group" aria-label="Interface language">
+    <div className="flex border" role="group" aria-label={tr("Interface language")}>
       {options.map(({ code, label }) => (
         <button
           key={code}
@@ -56,7 +57,7 @@ function LanguagePicker() {
 }
 
 export function PublicHeader() {
-  const { t } = useLanguage();
+  const { t, tr } = useLanguage();
   const router = useRouter();
   const [user, setUser] = useState<{ role: string } | null>(null);
   useEffect(() => {
@@ -80,12 +81,12 @@ export function PublicHeader() {
         <Brand />
         <nav
           className="hidden items-center gap-7 text-sm font-semibold md:flex"
-          aria-label="Primary navigation"
+          aria-label={tr("Primary navigation")}
         >
           {user?.role === "resident" && (
             <>
               <Link className="border-b border-transparent hover:border-civic hover:text-civic" href="/resident#report">{t("report")}</Link>
-              <Link className="border-b border-transparent hover:border-civic hover:text-civic" href="/resident#assistant">AI assistant</Link>
+              <Link className="border-b border-transparent hover:border-civic hover:text-civic" href="/resident#assistant">{tr("AI assistant")}</Link>
               <Link className="border-b border-transparent hover:border-civic hover:text-civic" href="/lite">{t("lite")}</Link>
             </>
           )}

@@ -294,6 +294,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/resolutions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pending Resolutions */
+        get: operations["pending_resolutions_api_admin_resolutions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/resolutions/{assignment_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Resolution */
+        post: operations["confirm_resolution_api_admin_resolutions__assignment_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/escalations/{complaint_id}/simulate": {
         parameters: {
             query?: never;
@@ -640,6 +674,13 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdminResolutionRequest */
+        AdminResolutionRequest: {
+            /** Expected Version */
+            expected_version: number;
+            /** Note */
+            note?: string | null;
+        };
         /** AppealRequest */
         AppealRequest: {
             /**
@@ -1382,6 +1423,61 @@ export interface operations {
             };
         };
     };
+    pending_resolutions_api_admin_resolutions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    confirm_resolution_api_admin_resolutions__assignment_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assignment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminResolutionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     simulate_breach_api_admin_escalations__complaint_id__simulate_post: {
         parameters: {
             query?: never;
@@ -1859,7 +1955,9 @@ export interface operations {
     upload_evidence_api_complaints__complaint_id__evidence_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Assignment-Id"?: string | null;
+            };
             path: {
                 complaint_id: string;
             };

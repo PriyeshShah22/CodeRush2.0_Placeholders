@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useLanguage } from "./language-provider";
 
 type Department = { id: string; name: string };
 type Detail = {
@@ -66,6 +67,7 @@ export function QuickReviewDialog({
   onComplete?: () => void;
   triggerLabel?: string;
 }) {
+  const { locale, tr, priority: priorityLabel, category: categoryLabel, department: departmentLabel, location } = useLanguage();
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<Detail>();
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -90,13 +92,9 @@ export function QuickReviewDialog({
         setResolutionHours(remainingHours(a.data.sla?.resolution_due_at));
         setDepartment(a.data.routes[0]?.department_id || "");
       })
-      .catch((reason) =>
-        setError(
-          reason instanceof Error ? reason.message : "Review unavailable",
-        ),
-      )
+      .catch(() => setError(tr("Review unavailable")))
       .finally(() => setBusy(false));
-  }, [open, complaint.id]);
+  }, [open, complaint.id, tr]);
   const recommended = detail?.routes[0]?.department_id;
   async function approve() {
     if (!detail || !department) return;
@@ -126,11 +124,11 @@ export function QuickReviewDialog({
           expected_version: decision.data.version,
         }),
       });
-      toast.success("Approved and assigned");
+      toast.success(tr("Approved and assigned"));
       setOpen(false);
       onComplete?.();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Approval failed");
+      setError(reason instanceof Error ? tr("Approval failed") : tr("Approval failed"));
     } finally {
       setBusy(false);
     }
@@ -140,15 +138,14 @@ export function QuickReviewDialog({
       <DialogTrigger asChild>
         <Button size="sm" variant="outline">
           <Check />
-          {triggerLabel}
+          {tr(triggerLabel)}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Review and approve complaint</DialogTitle>
+          <DialogTitle>{tr("Review and approve complaint")}</DialogTitle>
           <DialogDescription>
-            Confirm the AI recommendation or adjust category, priority,
-            department, and resolution time.
+            {tr("Confirm the AI recommendation or adjust category, priority, department, and resolution time.")}
           </DialogDescription>
         </DialogHeader>
         {busy && !detail ? (
@@ -164,7 +161,7 @@ export function QuickReviewDialog({
                     {detail.complaint.reference_number}
                   </span>
                   <Badge className="capitalize">
-                    {detail.complaint.priority}
+                    {priorityLabel(detail.complaint.priority)}
                   </Badge>
                 </div>
                 <p className="mt-3 text-sm leading-7">
@@ -175,16 +172,16 @@ export function QuickReviewDialog({
                   detail.complaint.original_text ? (
                   <div className="mt-4 border-t pt-4">
                     <span className="text-xs font-bold text-muted-foreground">
-                      English translation
+                      {tr(locale === "hi" ? "Hindi translation" : locale === "mr" ? "Marathi translation" : "English translation")}
                     </span>
                     <p className="mt-1 text-sm leading-6">
-                      {detail.complaint.normalized_text}
+                      {locale === "hi" ? detail.complaint.translation_hi || detail.complaint.normalized_text : locale === "mr" ? detail.complaint.translation_mr || detail.complaint.normalized_text : detail.complaint.normalized_text}
                     </p>
                   </div>
                 ) : null}
                 <p className="mt-4 flex items-start gap-2 text-sm font-semibold">
                   <MapPin className="mt-0.5 size-4 text-civic" />
-                  {detail.complaint.location_text}
+                  {location(detail.complaint.location_text)}
                 </p>
               </div>
               <button
@@ -193,12 +190,12 @@ export function QuickReviewDialog({
                 className="flex items-center gap-2 text-sm font-bold text-civic"
               >
                 <Pencil className="size-4" />
-                {override ? "Use compact review" : "Adjust recommendation"}
+                {override ? tr("Use compact review") : tr("Adjust recommendation")}
               </button>
               {override ? (
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <Label>Category</Label>
+                    <Label>{tr("Category")}</Label>
                     <Select value={category} onValueChange={setCategory}>
                       <SelectTrigger className="mt-2 w-full">
                         <SelectValue />
@@ -206,14 +203,14 @@ export function QuickReviewDialog({
                       <SelectContent>
                         {categories.map((value) => (
                           <SelectItem key={value} value={value}>
-                            {value.replaceAll("_", " ")}
+                            {categoryLabel(value)}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <Label>Priority</Label>
+                    <Label>{tr("Priority")}</Label>
                     <Select value={priority} onValueChange={setPriority}>
                       <SelectTrigger className="mt-2 w-full">
                         <SelectValue />
@@ -221,7 +218,7 @@ export function QuickReviewDialog({
                       <SelectContent>
                         {["low", "normal", "high", "critical"].map((value) => (
                           <SelectItem key={value} value={value}>
-                            {value}
+                            {priorityLabel(value)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -229,7 +226,7 @@ export function QuickReviewDialog({
                   </div>
                   <div>
                     <Label htmlFor="resolution-hours">
-                      Resolution time (hours)
+                      {tr("Resolution time (hours)")}
                     </Label>
                     <div className="relative mt-2">
                       <Clock3 className="absolute left-3 top-2.5 size-4 text-civic" />
@@ -252,15 +249,15 @@ export function QuickReviewDialog({
                     </div>
                   </div>
                   <div>
-                    <Label>Department</Label>
+                    <Label>{tr("Department")}</Label>
                     <Select value={department} onValueChange={setDepartment}>
                       <SelectTrigger className="mt-2 w-full">
-                        <SelectValue placeholder="Select department" />
+                        <SelectValue placeholder={tr("Select department")} />
                       </SelectTrigger>
                       <SelectContent>
                         {departments.map((item) => (
                           <SelectItem key={item.id} value={item.id}>
-                            {item.name}
+                            {departmentLabel(item.name)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -270,20 +267,18 @@ export function QuickReviewDialog({
               ) : null}
               <div className="grid gap-2 border-t pt-4 text-sm sm:grid-cols-3">
                 <span>
-                  <b>Department</b>
+                  <b>{tr("Department")}</b>
                   <small className="mt-1 block">
-                    {departments.find((item) => item.id === department)?.name ||
-                      detail.routes[0]?.department ||
-                      "Choose one"}
+                    {departmentLabel(departments.find((item) => item.id === department)?.name || detail.routes[0]?.department || tr("Choose one"))}
                   </small>
                 </span>
                 <span>
-                  <b>Priority</b>
-                  <small className="mt-1 block capitalize">{priority}</small>
+                  <b>{tr("Priority")}</b>
+                  <small className="mt-1 block">{priorityLabel(priority)}</small>
                 </span>
                 <span>
-                  <b>Resolution target</b>
-                  <small className="mt-1 block">{resolutionHours} hours</small>
+                  <b>{tr("Resolution target")}</b>
+                  <small className="mt-1 block">{tr("{hours} hours", { hours: resolutionHours })}</small>
                 </span>
               </div>
             </div>
@@ -296,11 +291,10 @@ export function QuickReviewDialog({
         ) : null}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancel
+            {tr("Cancel")}
           </Button>
           <Button onClick={approve} disabled={busy || !department}>
-            {busy ? <Loader2 className="animate-spin" /> : null}Approve and
-            assign
+            {busy ? <Loader2 className="animate-spin" /> : null}{tr("Approve and assign")}
           </Button>
         </DialogFooter>
       </DialogContent>

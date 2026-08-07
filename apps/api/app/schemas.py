@@ -73,6 +73,10 @@ class StatusRequest(BaseModel):
     note: str|None=None
     expected_version: int
 
+class AdminResolutionRequest(BaseModel):
+    expected_version: int
+    note: str|None=Field(default=None,max_length=1000)
+
 class AppealRequest(BaseModel):
     kind: str = "appeal"
     message: str = Field(min_length=12, max_length=2000)

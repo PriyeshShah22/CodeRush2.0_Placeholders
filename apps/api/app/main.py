@@ -252,7 +252,9 @@ def department_task(assignment_id: str,user: User=Depends(require_roles(Role.dep
     complaint=db.get(Complaint,assignment.complaint_id)
     dependencies=db.scalars(select(TaskDependency).where(or_(TaskDependency.parent_assignment_id==assignment.id,TaskDependency.depends_on_assignment_id==assignment.id))).all()
     sla=db.scalar(select(SLARecord).where(SLARecord.complaint_id==complaint.id))
-    return {"data":{"assignment":assignment,"complaint":ComplaintOut.model_validate(complaint),"dependencies":dependencies,"sla":sla}}
+    evidence=db.scalars(select(ComplaintEvidence).where(ComplaintEvidence.complaint_id==complaint.id).order_by(ComplaintEvidence.created_at)).all()
+    evidence_data=[{"id":item.id,"storage_reference":item.storage_reference,"mime_type":item.mime_type,"size_bytes":item.size_bytes,"evidence_type":item.evidence_type,"created_at":item.created_at,"is_resolution_proof":item.provenance.get("assignment_id")==assignment.id and item.provenance.get("purpose")=="resolution_proof"} for item in evidence]
+    return {"data":{"assignment":assignment,"complaint":ComplaintOut.model_validate(complaint),"dependencies":dependencies,"sla":sla,"evidence":evidence_data}}
 
 @app.post("/api/department/tasks/{assignment_id}/status")
 def task_status(assignment_id: str,body: StatusRequest,user: User=Depends(require_roles(Role.department,Role.admin)),db: Session=Depends(get_db)):
@@ -260,14 +262,50 @@ def task_status(assignment_id: str,body: StatusRequest,user: User=Depends(requir
     if not a or not c: raise HTTPException(404,"Task not found")
     if user.role==Role.department and a.department_id!=user.department_id: raise HTTPException(403,"Task belongs to another department")
     if c.version!=body.expected_version: raise HTTPException(409,"Task changed; refresh first")
-    allowed={"assigned":{"acknowledged"},"acknowledged":{"in_progress"},"in_progress":{"resolved"}}
+    allowed={"assigned":{"acknowledged"},"acknowledged":{"in_progress"},"in_progress":{"resolution_submitted"}}
     if body.status not in allowed.get(a.status,set()): raise HTTPException(422,f"Cannot move a task from {a.status} to {body.status}")
+    if body.status=="resolution_submitted":
+        evidence=db.scalars(select(ComplaintEvidence).where(ComplaintEvidence.complaint_id==c.id)).all()
+        proofs=[item for item in evidence if item.provenance.get("assignment_id")==a.id and item.provenance.get("purpose")=="resolution_proof"]
+        if not proofs: raise HTTPException(409,"Attach completion proof before submitting resolution")
     a.status=body.status
     if body.status=="acknowledged": a.acknowledged_at=datetime.now(timezone.utc); c.status=ComplaintStatus.acknowledged
     elif body.status=="in_progress": c.status=ComplaintStatus.in_progress
-    else: a.resolved_at=datetime.now(timezone.utc); c.status=ComplaintStatus.resolved
+    else:
+        c.status=ComplaintStatus.resolution_submitted
+        for admin in db.scalars(select(User).where(User.role==Role.admin,User.is_active.is_(True))).all():
+            db.add(Notification(user_id=admin.id,complaint_id=c.id,kind="resolution_submitted",message=f"{c.reference_number} is ready for proof verification.",locale=admin.preferred_language))
     c.version+=1; audit(db,"complaint",c.id,f"department_{body.status}",user,reason=body.note); db.commit()
     return {"message":"Task status and resident timeline updated."}
+
+@app.get("/api/admin/resolutions")
+def pending_resolutions(user: User=Depends(require_roles(Role.admin)),db: Session=Depends(get_db)):
+    rows=db.execute(select(Assignment,Complaint,Department).join(Complaint,Assignment.complaint_id==Complaint.id).join(Department,Assignment.department_id==Department.id).where(Assignment.status=="resolution_submitted").order_by(Complaint.updated_at.desc())).all()
+    data=[]
+    for assignment,complaint,department in rows:
+        evidence=db.scalars(select(ComplaintEvidence).where(ComplaintEvidence.complaint_id==complaint.id).order_by(ComplaintEvidence.created_at)).all()
+        proofs=[{"id":item.id,"storage_reference":item.storage_reference,"mime_type":item.mime_type,"size_bytes":item.size_bytes,"evidence_type":item.evidence_type,"created_at":item.created_at} for item in evidence if item.provenance.get("assignment_id")==assignment.id and item.provenance.get("purpose")=="resolution_proof"]
+        data.append({"assignment":assignment,"complaint":ComplaintOut.model_validate(complaint),"department":{"id":department.id,"code":department.code,"name":department.name},"proofs":proofs})
+    return {"data":data}
+
+@app.post("/api/admin/resolutions/{assignment_id}/confirm")
+def confirm_resolution(assignment_id: str,body: AdminResolutionRequest,user: User=Depends(require_roles(Role.admin)),db: Session=Depends(get_db)):
+    assignment=db.get(Assignment,assignment_id); complaint=db.get(Complaint,assignment.complaint_id) if assignment else None
+    if not assignment or not complaint: raise HTTPException(404,"Resolution submission not found")
+    if assignment.status!="resolution_submitted": raise HTTPException(409,"This task is not awaiting resolution verification")
+    if complaint.version!=body.expected_version: raise HTTPException(409,"Resolution changed; refresh first")
+    evidence=db.scalars(select(ComplaintEvidence).where(ComplaintEvidence.complaint_id==complaint.id)).all()
+    if not any(item.provenance.get("assignment_id")==assignment.id and item.provenance.get("purpose")=="resolution_proof" for item in evidence): raise HTTPException(409,"Resolution proof is missing")
+    assignment.status="resolved"; assignment.resolved_at=datetime.now(timezone.utc)
+    remaining=db.scalar(select(func.count()).select_from(Assignment).where(Assignment.complaint_id==complaint.id,Assignment.id!=assignment.id,Assignment.status!="resolved")) or 0
+    complaint.status=ComplaintStatus.resolved if remaining==0 else ComplaintStatus.in_progress
+    complaint.version+=1
+    identity=db.get(ReporterIdentity,complaint.reporter_identity_id) if complaint.reporter_identity_id else None
+    if identity and identity.user_id and remaining==0:
+        db.add(Notification(user_id=identity.user_id,complaint_id=complaint.id,kind="resolved",message=f"{complaint.reference_number} has been verified as completed.",locale="en"))
+    audit(db,"complaint",complaint.id,"admin_resolution_confirmed",user,new={"assignment_id":assignment.id,"final_resolution":remaining==0},reason=body.note)
+    db.commit()
+    return {"data":{"complaint":ComplaintOut.model_validate(complaint),"assignment_status":assignment.status},"message":"Resolution verified and recorded."}
 
 @app.post("/api/admin/escalations/{complaint_id}/simulate")
 def simulate_breach(complaint_id: str,user: User=Depends(require_roles(Role.admin)),db: Session=Depends(get_db)):
@@ -306,7 +344,7 @@ def dashboard(user: User=Depends(require_roles(Role.admin,Role.reviewer)),db: Se
         incident_key=links.get(complaint.id) or complaint.id
         if incidents.get(incident_key).id!=complaint.id: continue
         due=sla.resolution_due_at.replace(tzinfo=timezone.utc) if sla.resolution_due_at.tzinfo is None else sla.resolution_due_at
-        deadlines.append({"complaint_id":complaint.id,"reference_number":complaint.reference_number,"title":complaint.title or complaint.normalized_text or complaint.safe_text,"priority":complaint.priority.value,"status":complaint.status.value,"resolution_due_at":due,"remaining_hours":round((due-now).total_seconds()/3600,1)})
+        deadlines.append({"complaint_id":complaint.id,"reference_number":complaint.reference_number,"title":complaint.title or complaint.normalized_text or complaint.safe_text,"translation_hi":complaint.translation_hi,"translation_mr":complaint.translation_mr,"priority":complaint.priority.value,"status":complaint.status.value,"resolution_due_at":due,"remaining_hours":round((due-now).total_seconds()/3600,1)})
     return {"data":{"open_complaints":open_count,"resolved_complaints":resolved,"active_breaches":breached,"sla_compliance":round((1-breached/max(total_sla,1))*100,1),"categories":[{"name":k,"value":v} for k,v in category_counts.items()],"wards":[{"name":k,"value":v} for k,v in ward_counts.items()],"statuses":[{"name":k,"value":v} for k,v in status_counts.items()],"map_points":map_points,"deadlines":deadlines}}
 
 @app.get("/api/admin/analytics")
@@ -447,15 +485,17 @@ def sms(body: SmsMessage,user: User=Depends(require_roles(Role.resident)),db: Se
     return {"data":{"session_id":session.id,"reply":reply,"state":session.state}}
 
 @app.post("/api/complaints/{complaint_id}/evidence")
-async def upload_evidence(complaint_id: str,file: UploadFile=File(...),user: User=Depends(current_user),db: Session=Depends(get_db)):
+async def upload_evidence(complaint_id: str,file: UploadFile=File(...),assignment_id: str|None=Header(default=None,alias="X-Assignment-Id"),user: User=Depends(current_user),db: Session=Depends(get_db)):
     c=db.get(Complaint,complaint_id)
     if not c: raise HTTPException(404,"Complaint not found")
     if user.role==Role.resident:
         identity=db.get(ReporterIdentity,c.reporter_identity_id)
         if not identity or identity.user_id!=user.id: raise HTTPException(403,"Complaint belongs to another resident")
     if user.role==Role.department:
-        assigned=db.scalar(select(Assignment).where(Assignment.complaint_id==c.id,Assignment.department_id==user.department_id))
+        assigned=db.get(Assignment,assignment_id) if assignment_id else db.scalar(select(Assignment).where(Assignment.complaint_id==c.id,Assignment.department_id==user.department_id))
         if not assigned: raise HTTPException(403,"Complaint is outside your assigned work")
+        if assigned.complaint_id!=c.id or assigned.department_id!=user.department_id: raise HTTPException(403,"Evidence is outside your assigned work")
+        if assignment_id and assigned.status!="in_progress": raise HTTPException(409,"Start work before attaching completion proof")
     allowed={"image/jpeg","image/png","image/webp","audio/webm","audio/mpeg","audio/mp4","audio/wav","audio/ogg","audio/x-m4a","audio/aac","video/mp4","video/webm"}
     if file.content_type.split(";")[0] not in allowed: raise HTTPException(415,"Unsupported evidence type")
     limit=25*1024*1024 if file.content_type.startswith("video/") else 8*1024*1024
@@ -464,7 +504,9 @@ async def upload_evidence(complaint_id: str,file: UploadFile=File(...),user: Use
     suffix={"image/jpeg":".jpg","image/png":".png","image/webp":".webp","audio/webm":".webm","audio/mpeg":".mp3","audio/mp4":".m4a","audio/wav":".wav","audio/ogg":".ogg","audio/x-m4a":".m4a","audio/aac":".aac","video/mp4":".mp4","video/webm":".webm"}[file.content_type.split(";")[0]]
     name=f"{complaint_id}-{secrets.token_hex(8)}{suffix}"; path=Path(settings.upload_dir)/name; path.write_bytes(content)
     evidence_type="video" if file.content_type.startswith("video/") else "audio" if file.content_type.startswith("audio/") else "image"
-    db.add(ComplaintEvidence(complaint_id=c.id,evidence_type=evidence_type,storage_reference=name,mime_type=file.content_type,size_bytes=len(content),provenance={"actor_id":user.id,"channel":"web"},retention_until=datetime.now(timezone.utc)+timedelta(days=90)))
+    provenance={"actor_id":user.id,"channel":"web"}
+    if user.role==Role.department and assignment_id: provenance.update({"assignment_id":assignment_id,"purpose":"resolution_proof"})
+    db.add(ComplaintEvidence(complaint_id=c.id,evidence_type=evidence_type,storage_reference=name,mime_type=file.content_type,size_bytes=len(content),provenance=provenance,retention_until=datetime.now(timezone.utc)+timedelta(days=90)))
     audit(db,"complaint",c.id,"evidence_uploaded",user,new={"mime":file.content_type,"size":len(content)}); db.commit()
     return {"data":{"storage_reference":name,"mime":file.content_type,"size":len(content)},"message":"Evidence stored with protected access."}
 

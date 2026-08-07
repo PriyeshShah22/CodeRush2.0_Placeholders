@@ -62,7 +62,7 @@ const dashboardCopy = {
 } as const;
 
 export function ResidentDashboard() {
-  const { locale } = useLanguage();
+  const { locale, status, tr, location } = useLanguage();
   const c = dashboardCopy[locale];
   const [rows, setRows] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,10 +74,8 @@ export function ResidentDashboard() {
     try {
       const response = await api<{ data: Complaint[] }>("/complaints");
       setRows(response.data);
-    } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : "Complaints unavailable",
-      );
+    } catch {
+      setError(c.load);
     } finally {
       setLoading(false);
     }
@@ -85,23 +83,20 @@ export function ResidentDashboard() {
   useEffect(() => {
     api<{ data: Complaint[] }>("/complaints")
       .then((response) => setRows(response.data))
-      .catch((reason) =>
-        setError(
-          reason instanceof Error ? reason.message : "Complaints unavailable",
-        ),
-      )
+      .catch(() => setError(c.load))
       .finally(() => setLoading(false));
     const timer = setTimeout(() => {
       if (window.location.hash === "#report") setTab("report");
       if (window.location.hash === "#assistant") setTab("assistant");
     }, 0);
     return () => clearTimeout(timer);
-  }, []);
+  }, [c.load]);
   function displayText(complaint: Complaint) {
     if (locale === "hi" && complaint.translation_hi)
       return complaint.translation_hi;
     if (locale === "mr" && complaint.translation_mr)
       return complaint.translation_mr;
+    if (locale !== "en") return tr("Translation is being prepared");
     return complaint.normalized_text || complaint.safe_text;
   }
   function filed() {
@@ -167,7 +162,7 @@ export function ResidentDashboard() {
                         {complaint.reference_number}
                       </span>
                       <Badge variant="outline" className="capitalize">
-                        {complaint.status.replaceAll("_", " ")}
+                        {status(complaint.status)}
                       </Badge>
                       {(complaint.linked_reports || 1) > 1 ? (
                         <Badge variant="secondary">
@@ -180,7 +175,7 @@ export function ResidentDashboard() {
                     </h3>
                     <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
                       <MapPin className="size-3" />
-                      {complaint.location_text}
+                      {location(complaint.location_text)}
                     </p>
                   </div>
                   <ArrowRight className="size-5 text-civic" />

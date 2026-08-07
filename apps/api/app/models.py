@@ -12,7 +12,7 @@ def uid(): return str(uuid.uuid4())
 class Role(str, enum.Enum):
     resident="resident"; reviewer="reviewer"; department="department"; admin="admin"
 class ComplaintStatus(str, enum.Enum):
-    submitted="submitted"; processing="processing"; awaiting_review="awaiting_review"; assigned="assigned"; acknowledged="acknowledged"; in_progress="in_progress"; escalated="escalated"; resolved="resolved"; reopened="reopened"
+    submitted="submitted"; processing="processing"; awaiting_review="awaiting_review"; assigned="assigned"; acknowledged="acknowledged"; in_progress="in_progress"; resolution_submitted="resolution_submitted"; escalated="escalated"; resolved="resolved"; reopened="reopened"
 class Priority(str, enum.Enum):
     low="low"; normal="normal"; high="high"; critical="critical"
 class JobStatus(str, enum.Enum):

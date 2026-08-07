@@ -608,6 +608,69 @@
         }
       }
     },
+    "/api/admin/resolutions": {
+      "get": {
+        "summary": "Pending Resolutions",
+        "operationId": "pending_resolutions_api_admin_resolutions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/resolutions/{assignment_id}/confirm": {
+      "post": {
+        "summary": "Confirm Resolution",
+        "operationId": "confirm_resolution_api_admin_resolutions__assignment_id__confirm_post",
+        "parameters": [
+          {
+            "name": "assignment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Assignment Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminResolutionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/escalations/{complaint_id}/simulate": {
       "post": {
         "summary": "Simulate Breach",
@@ -1120,6 +1183,22 @@
               "type": "string",
               "title": "Complaint Id"
             }
+          },
+          {
+            "name": "X-Assignment-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Assignment-Id"
+            }
           }
         ],
         "requestBody": {
@@ -1304,6 +1383,31 @@
   },
   "components": {
     "schemas": {
+      "AdminResolutionRequest": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "title": "Expected Version"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "expected_version"
+        ],
+        "title": "AdminResolutionRequest"
+      },
       "AppealRequest": {
         "properties": {
           "kind": {

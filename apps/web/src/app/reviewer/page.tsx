@@ -1,2 +1,3 @@
 import { PortalShell } from "@/components/nivaran/portal-shell";import { ReviewerQueue } from "@/components/nivaran/reviewer-queue";
-export default function ReviewerPage(){return <PortalShell role="reviewer" title="Review overview"><div className="mb-5"><p className="eyebrow">Human decision gate</p><h2 className="mt-2 text-3xl font-bold tracking-[-.04em]">Complaints awaiting reviewer approval</h2><p className="mt-2 max-w-2xl text-sm text-muted-foreground">AI recommends category and priority. Review, edit if needed, and explicitly approve before any department assignment.</p></div><ReviewerQueue/></PortalShell>}
+import { ReviewerPageIntro } from "@/components/nivaran/translated-page-intros";
+export default function ReviewerPage(){return <PortalShell role="reviewer" title="Review overview"><ReviewerPageIntro/><ReviewerQueue/></PortalShell>}

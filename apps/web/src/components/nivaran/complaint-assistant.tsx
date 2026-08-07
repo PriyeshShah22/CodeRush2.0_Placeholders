@@ -27,7 +27,7 @@ export function ComplaintAssistant({
 }: {
   onFiled?: (complaint: Complaint) => void;
 }) {
-  const { locale } = useLanguage();
+  const { locale, tr } = useLanguage();
   const [messages, setMessages] = useState<Message[]>([
     { from: "assistant", text: intro[locale] },
   ]);
@@ -76,12 +76,12 @@ export function ComplaintAssistant({
         { from: "assistant", text: response.data.reply },
       ]);
       if (response.data.complaint) onFiled?.(response.data.complaint);
-    } catch (reason) {
+    } catch {
       setMessages((current) => [
         ...current,
         {
           from: "assistant",
-          text: reason instanceof Error ? reason.message : "Please try again.",
+          text: tr("Please try again."),
         },
       ]);
     } finally {
@@ -107,7 +107,7 @@ export function ComplaintAssistant({
           ...current,
           {
             from: "resident",
-            text: `Shared location: ${response.data.display_name}`,
+            text: tr("Shared location: {location}", { location: response.data.display_name }),
           },
         ]);
       } catch {
@@ -115,7 +115,7 @@ export function ComplaintAssistant({
           ...current,
           {
             from: "assistant",
-            text: "I could not verify that location. Please type a street or landmark.",
+            text: tr("I could not verify that location. Please type a street or landmark."),
           },
         ]);
       }
@@ -153,18 +153,15 @@ export function ComplaintAssistant({
           });
           const payload = await response.json();
           if (!response.ok)
-            throw new Error(payload.detail || "Voice translation failed");
+            throw new Error(tr("Voice translation failed"));
           setBusy(false);
           await send(payload.data.safe_text);
-        } catch (reason) {
+        } catch {
           setMessages((current) => [
             ...current,
             {
               from: "assistant",
-              text:
-                reason instanceof Error
-                  ? reason.message
-                  : "Voice translation failed.",
+              text: tr("Voice translation failed"),
             },
           ]);
         } finally {
@@ -179,7 +176,7 @@ export function ComplaintAssistant({
         ...current,
         {
           from: "assistant",
-          text: "Allow microphone access, or type your complaint below.",
+          text: tr("Allow microphone access, or type your complaint below."),
         },
       ]);
     }
@@ -193,16 +190,16 @@ export function ComplaintAssistant({
             <Bot className="size-5" />
           </span>
           <div>
-            <h2 className="font-bold">Nivaran filing assistant</h2>
+            <h2 className="font-bold">{tr("Nivaran filing assistant")}</h2>
             <p className="text-xs text-muted-foreground">
-              Only files complaints · remembers this conversation
+              {tr("Only files complaints · remembers this conversation")}
             </p>
           </div>
         </div>
         {location && (
           <span className="flex items-center gap-1 text-xs text-civic">
             <CheckCircle2 className="size-4" />
-            Location shared
+            {tr("Location shared")}
           </span>
         )}
       </header>
@@ -229,7 +226,7 @@ export function ComplaintAssistant({
           </div>
         ))}
         {busy && (
-          <p className="motion-fade text-xs text-muted-foreground">Thinking…</p>
+          <p className="motion-fade text-xs text-muted-foreground">{tr("Thinking…")}</p>
         )}
       </div>
       <form
@@ -247,8 +244,8 @@ export function ComplaintAssistant({
             className="h-10"
             name="message"
             autoComplete="off"
-            placeholder="Describe the issue or answer the question…"
-            aria-label="Message the complaint assistant"
+            placeholder={tr("Describe the issue or answer the question…")}
+            aria-label={tr("Message the complaint assistant")}
           />
           <Button
             type="button"
@@ -256,7 +253,7 @@ export function ComplaintAssistant({
             size="icon"
             className="size-10"
             onClick={shareLocation}
-            aria-label="Share current location"
+            aria-label={tr("Share current location")}
           >
             <LocateFixed />
           </Button>
@@ -266,7 +263,7 @@ export function ComplaintAssistant({
             size="icon"
             className="size-10"
             onClick={toggleVoice}
-            aria-label={recording ? "Stop recording" : "Speak complaint"}
+            aria-label={recording ? tr("Stop recording") : tr("Speak complaint")}
           >
             {recording ? <Square /> : <Mic />}
           </Button>
@@ -274,14 +271,13 @@ export function ComplaintAssistant({
             size="icon"
             className="size-10"
             disabled={busy}
-            aria-label="Send"
+            aria-label={tr("Send")}
           >
             <Send />
           </Button>
         </div>
         <p className="mt-2 text-[11px] text-muted-foreground">
-          Voice is translated by Sarvam. The assistant files only after you
-          confirm the summary.
+          {tr("Voice is translated by Sarvam. The assistant files only after you confirm the summary.")}
         </p>
       </form>
     </section>

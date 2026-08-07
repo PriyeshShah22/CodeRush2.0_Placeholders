@@ -43,6 +43,8 @@ class TriageOutput(BaseModel):
     language: str
     code_switched: bool
     normalized_translation: str
+    translation_hi: str
+    translation_mr: str
     category: str
     category_confidence: float
     priority: str
@@ -61,7 +63,7 @@ def openai_triage(complaint: Complaint) -> TriageOutput:
         model=settings.openai_text_model,
         reasoning={"effort":"low"},
         input=[
-            {"role":"system","content":"You triage civic service reports for a synthetic Indian municipality. Extract only evidence present. Never decide eligibility, reject a report, or invent a department. Translate to concise English while preserving meaning. Priority must be low, normal, high, or critical. Recommend a realistic resolution_hours between 1 and 720 based on safety impact, scale, and service complexity; this remains subject to human approval and deterministic priority caps. Category must be one of: "+", ".join(CATEGORIES)},
+            {"role":"system","content":"You triage civic service reports for a synthetic Indian municipality. Extract only evidence present. Never decide eligibility, reject a report, or invent a department. Return the same privacy-safe report meaning in three persisted forms: normalized_translation in concise English, translation_hi in natural Hindi written in Devanagari, and translation_mr in natural Marathi written in Devanagari. Hindi and Marathi must not contain English glosses in parentheses or mixed Latin spellings; translate ordinary terms and transliterate place names into Devanagari. Keep only unavoidable official abbreviations such as AI, GPS, SLA, reference codes, and units in Latin script. Preserve measurements, hazards, and reported facts without adding details. Priority must be low, normal, high, or critical. Recommend a realistic resolution_hours between 1 and 720 based on safety impact, scale, and service complexity; this remains subject to human approval and deterministic priority caps. Category must be one of: "+", ".join(CATEGORIES)},
             {"role":"user","content":f"Privacy-safe report: {complaint.safe_text}\nLocation: {complaint.location_text}\nWard hint: {complaint.ward or 'unknown'}"},
         ],
         text_format=TriageOutput,
@@ -83,23 +85,6 @@ def transcribe_audio(path: str) -> dict:
     response.raise_for_status()
     payload=response.json()
     return {"text":payload.get("transcript","").strip(),"language":payload.get("language_code") or "auto"}
-
-def translate_text(text: str, target: str) -> str:
-    if target=="en" or not text: return text
-    if not settings.sarvam_api_key: return text
-    language={"hi":"hi-IN","mr":"mr-IN"}.get(target)
-    if not language: return text
-    try:
-        response=httpx.post(
-            f"{settings.sarvam_base_url}/translate",
-            headers={"api-subscription-key":settings.sarvam_api_key,"Content-Type":"application/json"},
-            json={"input":text[:2000],"source_language_code":"en-IN","target_language_code":language},
-            timeout=30,
-        )
-        response.raise_for_status()
-        return response.json().get("translated_text",text)
-    except Exception:
-        return text
 
 def geocode_search(query: str) -> list[dict]:
     response=httpx.get(
@@ -251,8 +236,8 @@ def process_complaint(db: Session, job: ProcessingJob):
     try:
         triage=openai_triage(complaint)
         complaint.normalized_text=triage.normalized_translation
-        complaint.translation_hi=translate_text(triage.normalized_translation,"hi")
-        complaint.translation_mr=translate_text(triage.normalized_translation,"mr")
+        complaint.translation_hi=triage.translation_hi
+        complaint.translation_mr=triage.translation_mr
         complaint.language=triage.language
         complaint.category=triage.category if triage.category in CATEGORIES else "other"
         complaint.category_confidence=max(0,min(1,triage.category_confidence))

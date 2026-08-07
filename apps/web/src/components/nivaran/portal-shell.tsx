@@ -10,7 +10,7 @@ import {
   Users,
   Workflow,
 } from "lucide-react";
-import { Brand } from "./brand";
+import { Brand, LanguagePicker } from "./brand";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -40,8 +40,9 @@ const nav = {
 };
 function Nav({ role }: { role: keyof typeof nav }) {
   const pathname = usePathname();
+  const { tr } = useLanguage();
   return (
-    <nav className="mt-8 space-y-1" aria-label={`${role} navigation`}>
+    <nav className="mt-8 space-y-1" aria-label={tr("Navigation")}>
       {nav[role].map(({ href, label, icon: Icon }) => (
         <Link
           key={href}
@@ -49,7 +50,7 @@ function Nav({ role }: { role: keyof typeof nav }) {
           className={`flex items-center gap-3 px-3 py-2.5 text-sm font-semibold ${pathname === href || pathname.startsWith(href + "/") ? "bg-civic text-white" : "text-white/65 hover:bg-white/8 hover:text-white"}`}
         >
           <Icon className="size-4" />
-          {label}
+          {tr(label)}
         </Link>
       ))}
     </nav>
@@ -65,7 +66,7 @@ export function PortalShell({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, tr, roleLabel } = useLanguage();
   async function logout() {
     try {
       await api("/auth/logout", { method: "POST" });
@@ -79,7 +80,7 @@ export function PortalShell({
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 bg-ink p-5 text-white lg:block">
         <Brand />
         <p className="mt-6 border-y border-white/10 py-3 text-[10px] font-bold uppercase tracking-[.15em] text-emerald-300">
-          {role} workspace
+          {tr("{role} workspace", { role: roleLabel(role) })}
         </p>
         <Nav role={role} />
         <button
@@ -102,7 +103,7 @@ export function PortalShell({
                 side="left"
                 className="w-72 border-0 bg-ink p-5 text-white"
               >
-                <SheetTitle className="sr-only">Navigation</SheetTitle>
+                <SheetTitle className="sr-only">{tr("Navigation")}</SheetTitle>
                 <Brand />
                 <Nav role={role} />
                 <Button
@@ -116,14 +117,17 @@ export function PortalShell({
             </Sheet>
             <div>
               <span className="eyebrow hidden sm:block">
-                Synthetic Samanvay Nagar
+                {tr("Synthetic Samanvay Nagar")}
               </span>
-              <h1 className="font-bold tracking-[-.03em]">{title}</h1>
+              <h1 className="font-bold tracking-[-.03em]">{tr(title)}</h1>
             </div>
           </div>
-          <span className="text-xs text-muted-foreground">
-            {t("notifications")}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="hidden text-xs text-muted-foreground sm:block">
+              {t("notifications")}
+            </span>
+            <LanguagePicker />
+          </div>
         </header>
         <main className="p-4 sm:p-7">{children}</main>
       </div>

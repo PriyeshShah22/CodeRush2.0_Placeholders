@@ -63,7 +63,7 @@ const accountCopy = {
 
 export function LoginForm() {
   const router = useRouter();
-  const { locale, t } = useLanguage();
+  const { locale, t, tr, roleLabel } = useLanguage();
   const [selected, setSelected] = useState(accounts[0]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -88,7 +88,9 @@ export function LoginForm() {
         department: "/department",
         admin: "/admin",
       } as const;
-      toast.success(`Signed in as ${response.data.role}`);
+      toast.success(
+        tr("Signed in as {role}", { role: roleLabel(response.data.role) }),
+      );
       const requested = new URLSearchParams(window.location.search).get("next");
       const requestedMatchesRole =
         requested?.startsWith(`/${response.data.role}`) ||
@@ -99,8 +101,8 @@ export function LoginForm() {
           : roleHome[response.data.role];
       router.push(destination);
       router.refresh();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Sign in failed");
+    } catch {
+      setError(tr("Sign in failed"));
     } finally {
       setBusy(false);
     }

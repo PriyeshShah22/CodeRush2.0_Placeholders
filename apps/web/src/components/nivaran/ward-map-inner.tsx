@@ -8,6 +8,7 @@ import {
   Tooltip,
 } from "react-leaflet";
 import type { ComplaintMapPoint } from "./ward-map";
+import { useLanguage } from "./language-provider";
 
 const wardBoundary: [number, number][] = [
   [18.543, 73.827],
@@ -23,13 +24,14 @@ export default function WardMapInner({
 }: {
   points: ComplaintMapPoint[];
 }) {
+  const { tr, category } = useLanguage();
   return (
     <MapContainer
       center={[18.521, 73.855]}
       zoom={13}
       scrollWheelZoom={false}
       className="h-80 w-full"
-      aria-label="Persisted complaint geography"
+      aria-label={tr("Persisted complaint geography")}
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -57,10 +59,10 @@ export default function WardMapInner({
           }}
         >
           <Tooltip>
-            {item.label} · {item.category.replaceAll("_", " ")} ·{" "}
+            {item.label} · {category(item.category)} ·{" "}
             {item.count === 1
-              ? "1 report"
-              : `+${item.count - 1} similar reports`}
+              ? tr("1 report")
+              : tr("+{count} similar reports", { count: item.count - 1 })}
           </Tooltip>
         </CircleMarker>
       ))}
