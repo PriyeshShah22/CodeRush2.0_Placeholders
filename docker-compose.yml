@@ -1,0 +1,74 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: nivaran
+      POSTGRES_USER: nivaran
+      POSTGRES_PASSWORD: nivaran
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nivaran"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - nivaran_db:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  api:
+    build: ./apps/api
+    command: sh -c "alembic upgrade head && python -m app.seed && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    environment:
+      DATABASE_URL: postgresql+psycopg://nivaran:nivaran@db:5432/nivaran
+      JWT_SECRET: ${JWT_SECRET:-development-only-change-me-development}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SARVAM_API_KEY: ${SARVAM_API_KEY:-}
+      OPENAI_TEXT_MODEL: gpt-5.4-nano
+      OPENAI_TRANSCRIPTION_MODEL: gpt-4o-mini-transcribe
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+      WEB_ORIGIN: http://localhost:3000
+      UPLOAD_DIR: /data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./apps/api:/app
+      - ./data/uploads:/data/uploads
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    build: ./apps/api
+    command: python -m app.worker
+    environment:
+      DATABASE_URL: postgresql+psycopg://nivaran:nivaran@db:5432/nivaran
+      JWT_SECRET: ${JWT_SECRET:-development-only-change-me-development}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SARVAM_API_KEY: ${SARVAM_API_KEY:-}
+      OPENAI_TEXT_MODEL: gpt-5.4-nano
+      OPENAI_TRANSCRIPTION_MODEL: gpt-4o-mini-transcribe
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./apps/api:/app
+      - ./data/uploads:/data/uploads
+
+  web:
+    build: ./apps/web
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+volumes:
+  nivaran_db:
