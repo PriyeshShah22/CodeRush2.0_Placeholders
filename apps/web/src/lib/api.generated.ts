@@ -141,6 +141,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/community/issues/nearby": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Nearby Issues */
+        get: operations["nearby_issues_api_community_issues_nearby_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/community/incidents/{incident_id}/affected": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Affected */
+        post: operations["confirm_affected_api_community_incidents__incident_id__affected_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/complaints/{complaint_id}": {
         parameters: {
             query?: never;
@@ -220,6 +254,23 @@ export interface paths {
         put?: never;
         /** Reviewer Decision */
         post: operations["reviewer_decision_api_reviewer_complaints__complaint_id__decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reviewer/complaints/{complaint_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reviewer Reject */
+        post: operations["reviewer_reject_api_reviewer_complaints__complaint_id__reject_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -345,6 +396,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/complaints/{complaint_id}/sla/simulate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Simulate Role Sla Breach */
+        post: operations["simulate_role_sla_breach_api_complaints__complaint_id__sla_simulate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/dashboard": {
         parameters: {
             query?: never;
@@ -390,6 +458,23 @@ export interface paths {
         get: operations["escalations_api_admin_escalations_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/escalations/{complaint_id}/action": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin Breach Action */
+        post: operations["admin_breach_action_api_admin_escalations__complaint_id__action_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -674,6 +759,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdminEscalationActionRequest */
+        AdminEscalationActionRequest: {
+            /** Action */
+            action: string;
+            /**
+             * Recovery Hours
+             * @default 2
+             */
+            recovery_hours: number;
+            /** Note */
+            note?: string | null;
+        };
         /** AdminResolutionRequest */
         AdminResolutionRequest: {
             /** Expected Version */
@@ -813,6 +910,15 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** IncidentSupportRequest */
+        IncidentSupportRequest: {
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /** Location Accuracy Metres */
+            location_accuracy_metres?: number | null;
+        };
         /** LoginRequest */
         LoginRequest: {
             /** Email */
@@ -851,6 +957,21 @@ export interface components {
             note?: string | null;
             /** Expected Version */
             expected_version: number;
+        };
+        /** ReviewerRejectionRequest */
+        ReviewerRejectionRequest: {
+            /** Reason */
+            reason: string;
+            /** Expected Version */
+            expected_version: number;
+        };
+        /** SLASimulationRequest */
+        SLASimulationRequest: {
+            /**
+             * Stage
+             * @default department
+             */
+            stage: string;
         };
         /** ServiceRuleUpsert */
         ServiceRuleUpsert: {
@@ -1134,6 +1255,74 @@ export interface operations {
             };
         };
     };
+    nearby_issues_api_community_issues_nearby_get: {
+        parameters: {
+            query: {
+                latitude: number;
+                longitude: number;
+                radius?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_affected_api_community_incidents__incident_id__affected_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                incident_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncidentSupportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     complaint_detail_api_complaints__complaint_id__get: {
         parameters: {
             query?: never;
@@ -1279,6 +1468,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ReviewerDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reviewer_reject_api_reviewer_complaints__complaint_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                complaint_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewerRejectionRequest"];
             };
         };
         responses: {
@@ -1509,6 +1733,41 @@ export interface operations {
             };
         };
     };
+    simulate_role_sla_breach_api_complaints__complaint_id__sla_simulate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                complaint_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SLASimulationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     dashboard_api_admin_dashboard_get: {
         parameters: {
             query?: never;
@@ -1565,6 +1824,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    admin_breach_action_api_admin_escalations__complaint_id__action_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                complaint_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminEscalationActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

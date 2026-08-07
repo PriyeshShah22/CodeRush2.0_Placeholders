@@ -231,7 +231,9 @@ def route_complaint(db: Session, complaint: Complaint, suggested_resolution_hour
     if recs:
         hours=bounded_resolution_hours(complaint.priority,suggested_resolution_hours,recs[0][1].resolution_hours)
         ack=recs[0][1].acknowledgement_hours
-        db.add(SLARecord(complaint_id=complaint.id,acknowledgement_due_at=datetime.now(timezone.utc)+timedelta(hours=ack),resolution_due_at=datetime.now(timezone.utc)+timedelta(hours=hours),risk_score=0.15))
+        now=datetime.now(timezone.utc)
+        review_hours=4 if complaint.priority in (Priority.high,Priority.critical) else 8
+        db.add(SLARecord(complaint_id=complaint.id,acknowledgement_due_at=now+timedelta(hours=ack),resolution_due_at=now+timedelta(hours=hours),review_due_at=now+timedelta(hours=review_hours),risk_score=0.15))
     return recs
 
 def process_complaint(db: Session, job: ProcessingJob):
@@ -274,22 +276,45 @@ def process_complaint(db: Session, job: ProcessingJob):
     complaint.version+=1
     db.commit()
 
-def evaluate_sla(db: Session, simulate_id: str|None=None, actor=None):
+def evaluate_sla(db: Session, simulate_id: str|None=None, actor=None, simulate_stage: str="department"):
     now=datetime.now(timezone.utc)
-    query=select(SLARecord).where(SLARecord.breached_at.is_(None))
-    for sla in db.scalars(query).all():
+    for sla in db.scalars(select(SLARecord)).all():
+        c=db.get(Complaint,sla.complaint_id)
+        if not c or c.status in {ComplaintStatus.resolved,ComplaintStatus.rejected}: continue
+        review_pending=c.status in {ComplaintStatus.awaiting_review,ComplaintStatus.reopened}
+        stage="review" if review_pending else "department"
         if sla.complaint_id==simulate_id:
-            sla.resolution_due_at=now-timedelta(minutes=1); sla.simulated=True
-        resolution_due_at=utc_aware(sla.resolution_due_at)
-        remaining=(resolution_due_at-now).total_seconds()
-        total=max((resolution_due_at-(now-timedelta(hours=24))).total_seconds(),1)
+            if simulate_stage=="review": sla.review_due_at=now-timedelta(minutes=1)
+            else:
+                sla.acknowledgement_due_at=now-timedelta(minutes=1)
+                sla.resolution_due_at=now-timedelta(minutes=1)
+            sla.simulated=True; stage=simulate_stage
+        assignment=db.scalar(select(Assignment).where(Assignment.complaint_id==c.id,Assignment.kind=="primary").order_by(Assignment.assigned_at.desc()))
+        awaiting_department_ack=bool(assignment and assignment.status=="assigned" and not assignment.acknowledged_at)
+        due=sla.review_due_at if stage=="review" else (sla.acknowledgement_due_at if awaiting_department_ack else sla.resolution_due_at)
+        if not due: continue
+        due=utc_aware(due)
+        remaining=(due-now).total_seconds()
+        total=max((due-(now-timedelta(hours=24))).total_seconds(),1)
         sla.risk_score=round(min(1,max(0,1-remaining/total)),2)
-        if remaining<=0:
-            sla.breached_at=now; sla.escalation_level+=1
-            c=db.get(Complaint,sla.complaint_id); c.status=ComplaintStatus.escalated; c.version+=1
-            audit(db,"complaint",c.id,"sla_breached",actor,new={"level":sla.escalation_level,"simulated":sla.simulated},source="sla_worker")
+        already_breached=sla.review_breached_at if stage=="review" else sla.department_breached_at
+        if remaining<=0 and not already_breached:
+            if stage=="review": sla.review_breached_at=now
+            else: sla.department_breached_at=now; c.status=ComplaintStatus.escalated
+            old_priority=c.priority; priority_order=[Priority.low,Priority.normal,Priority.high,Priority.critical]
+            if c.priority!=Priority.critical: c.priority=priority_order[min(priority_order.index(c.priority)+1,len(priority_order)-1)]
+            sla.breached_at=sla.breached_at or now; sla.escalation_level+=1; c.version+=1
+            action="review_sla_breached" if stage=="review" else "department_sla_breached"
+            breach_window="human review" if stage=="review" else ("department acknowledgement" if awaiting_department_ack else "department resolution")
+            audit(db,"complaint",c.id,action,actor,old={"priority":old_priority.value},new={"level":sla.escalation_level,"simulated":sla.simulated,"stage":stage,"window":breach_window,"priority":c.priority.value},source="sla_worker")
+            message=f"{breach_window.title()} SLA breached for {c.reference_number}; Admin action is required. Priority is now {c.priority.value}."
+            for admin in db.scalars(select(User).where(User.role==Role.admin)).all(): db.add(Notification(user_id=admin.id,complaint_id=c.id,kind=f"{stage}_sla_escalation",message=message,locale="en"))
+            if stage=="review":
+                for reviewer in db.scalars(select(User).where(User.role==Role.reviewer)).all(): db.add(Notification(user_id=reviewer.id,complaint_id=c.id,kind="review_sla_breach",message=f"Human review SLA breached for {c.reference_number}. Priority was raised to {c.priority.value}.",locale="en"))
             identity=db.get(ReporterIdentity,c.reporter_identity_id) if c.reporter_identity_id else None
-            db.add(Notification(user_id=identity.user_id if identity else None,complaint_id=c.id,kind="sla_escalation",message="Your service request is delayed and has been escalated for supervisor attention.",locale=c.language if c.language in ("en","hi","mr") else "en"))
+            if identity and identity.user_id: db.add(Notification(user_id=identity.user_id,complaint_id=c.id,kind="complaint_delayed",message=f"Complaint no. {c.reference_number} is delayed. We have alerted the responsible team and will keep you updated.",locale=c.language if c.language in ("en","hi","mr") else "en"))
+            if stage=="department" and assignment:
+                for department_user in db.scalars(select(User).where(User.department_id==assignment.department_id)).all(): db.add(Notification(user_id=department_user.id,complaint_id=c.id,kind="department_sla_breach",message=f"Your department SLA breached for {c.reference_number}. Priority was raised to {c.priority.value}; Admin has been alerted.",locale="en"))
             incident=db.scalar(select(IncidentCluster).join(IncidentComplaintLink,IncidentComplaintLink.incident_id==IncidentCluster.id).where(IncidentComplaintLink.complaint_id==c.id))
             if incident:
                 supporters=db.scalars(select(IncidentSupport).where(IncidentSupport.incident_id==incident.id,IncidentSupport.subscribed.is_(True))).all()

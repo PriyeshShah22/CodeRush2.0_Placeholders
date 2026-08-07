@@ -223,6 +223,109 @@
         }
       }
     },
+    "/api/community/issues/nearby": {
+      "get": {
+        "summary": "Nearby Issues",
+        "operationId": "nearby_issues_api_community_issues_nearby_get",
+        "parameters": [
+          {
+            "name": "latitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "title": "Latitude"
+            }
+          },
+          {
+            "name": "longitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "title": "Longitude"
+            }
+          },
+          {
+            "name": "radius",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 2000,
+              "title": "Radius"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/community/incidents/{incident_id}/affected": {
+      "post": {
+        "summary": "Confirm Affected",
+        "operationId": "confirm_affected_api_community_incidents__incident_id__affected_post",
+        "parameters": [
+          {
+            "name": "incident_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Incident Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentSupportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/complaints/{complaint_id}": {
       "get": {
         "summary": "Complaint Detail",
@@ -435,6 +538,53 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ReviewerDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reviewer/complaints/{complaint_id}/reject": {
+      "post": {
+        "summary": "Reviewer Reject",
+        "operationId": "reviewer_reject_api_reviewer_complaints__complaint_id__reject_post",
+        "parameters": [
+          {
+            "name": "complaint_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Complaint Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewerRejectionRequest"
               }
             }
           }
@@ -708,6 +858,53 @@
         }
       }
     },
+    "/api/complaints/{complaint_id}/sla/simulate": {
+      "post": {
+        "summary": "Simulate Role Sla Breach",
+        "operationId": "simulate_role_sla_breach_api_complaints__complaint_id__sla_simulate_post",
+        "parameters": [
+          {
+            "name": "complaint_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Complaint Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SLASimulationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/dashboard": {
       "get": {
         "summary": "Dashboard",
@@ -750,6 +947,53 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/escalations/{complaint_id}/action": {
+      "post": {
+        "summary": "Admin Breach Action",
+        "operationId": "admin_breach_action_api_admin_escalations__complaint_id__action_post",
+        "parameters": [
+          {
+            "name": "complaint_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Complaint Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminEscalationActionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -1383,6 +1627,39 @@
   },
   "components": {
     "schemas": {
+      "AdminEscalationActionRequest": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "pattern": "^(request_update|recovery_target)$",
+            "title": "Action"
+          },
+          "recovery_hours": {
+            "type": "integer",
+            "maximum": 72.0,
+            "minimum": 1.0,
+            "title": "Recovery Hours",
+            "default": 2
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "AdminEscalationActionRequest"
+      },
       "AdminResolutionRequest": {
         "properties": {
           "expected_version": {
@@ -1779,6 +2056,41 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "IncidentSupportRequest": {
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude"
+          },
+          "location_accuracy_metres": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 10000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Accuracy Metres"
+          }
+        },
+        "type": "object",
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "title": "IncidentSupportRequest"
+      },
       "LoginRequest": {
         "properties": {
           "email": {
@@ -1901,6 +2213,38 @@
           "expected_version"
         ],
         "title": "ReviewerDecisionRequest"
+      },
+      "ReviewerRejectionRequest": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason"
+          },
+          "expected_version": {
+            "type": "integer",
+            "title": "Expected Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "expected_version"
+        ],
+        "title": "ReviewerRejectionRequest"
+      },
+      "SLASimulationRequest": {
+        "properties": {
+          "stage": {
+            "type": "string",
+            "pattern": "^(review|department)$",
+            "title": "Stage",
+            "default": "department"
+          }
+        },
+        "type": "object",
+        "title": "SLASimulationRequest"
       },
       "ServiceRuleUpsert": {
         "properties": {

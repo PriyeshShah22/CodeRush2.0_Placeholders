@@ -8,7 +8,8 @@ branch_labels=None
 depends_on=None
 
 def upgrade():
-    op.create_table(
+    if not sa.inspect(op.get_bind()).has_table("incident_supports"):
+        op.create_table(
         "incident_supports",
         sa.Column("id",sa.String(length=36),primary_key=True),
         sa.Column("incident_id",sa.String(length=36),sa.ForeignKey("incident_clusters.id",ondelete="CASCADE"),nullable=False),
@@ -21,9 +22,9 @@ def upgrade():
         sa.Column("subscribed",sa.Boolean(),nullable=False,server_default=sa.true()),
         sa.Column("created_at",sa.DateTime(timezone=True),nullable=False),
         sa.UniqueConstraint("incident_id","user_id",name="uq_incident_support_user"),
-    )
-    op.create_index("ix_incident_supports_incident_id","incident_supports",["incident_id"])
-    op.create_index("ix_incident_supports_user_id","incident_supports",["user_id"])
+        )
+        op.create_index("ix_incident_supports_incident_id","incident_supports",["incident_id"])
+        op.create_index("ix_incident_supports_user_id","incident_supports",["user_id"])
 
 def downgrade():
     op.drop_index("ix_incident_supports_user_id",table_name="incident_supports")

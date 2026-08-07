@@ -12,7 +12,7 @@ def uid(): return str(uuid.uuid4())
 class Role(str, enum.Enum):
     resident="resident"; reviewer="reviewer"; department="department"; admin="admin"
 class ComplaintStatus(str, enum.Enum):
-    submitted="submitted"; processing="processing"; awaiting_review="awaiting_review"; assigned="assigned"; acknowledged="acknowledged"; in_progress="in_progress"; resolution_submitted="resolution_submitted"; escalated="escalated"; resolved="resolved"; reopened="reopened"
+    submitted="submitted"; processing="processing"; awaiting_review="awaiting_review"; assigned="assigned"; acknowledged="acknowledged"; in_progress="in_progress"; resolution_submitted="resolution_submitted"; escalated="escalated"; resolved="resolved"; reopened="reopened"; rejected="rejected"
 class Priority(str, enum.Enum):
     low="low"; normal="normal"; high="high"; critical="critical"
 class JobStatus(str, enum.Enum):
@@ -187,6 +187,9 @@ class SLARecord(Base):
     complaint_id: Mapped[str]=mapped_column(ForeignKey("complaints.id"), unique=True)
     acknowledgement_due_at: Mapped[datetime]=mapped_column(DateTime(timezone=True))
     resolution_due_at: Mapped[datetime]=mapped_column(DateTime(timezone=True))
+    review_due_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    review_breached_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    department_breached_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     risk_score: Mapped[float]=mapped_column(Float, default=0)
     breached_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     escalation_level: Mapped[int]=mapped_column(Integer, default=0)

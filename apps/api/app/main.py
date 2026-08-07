@@ -33,6 +33,11 @@ async def lifespan(app: FastAPI):
             if "routing_approved" not in columns: connection.exec_driver_sql("ALTER TABLE complaints ADD COLUMN routing_approved BOOLEAN NOT NULL DEFAULT 0")
             if "translation_hi" not in columns: connection.exec_driver_sql("ALTER TABLE complaints ADD COLUMN translation_hi TEXT")
             if "translation_mr" not in columns: connection.exec_driver_sql("ALTER TABLE complaints ADD COLUMN translation_mr TEXT")
+            sla_columns={row[1] for row in connection.exec_driver_sql("PRAGMA table_info(sla_records)")}
+            if "review_due_at" not in sla_columns: connection.exec_driver_sql("ALTER TABLE sla_records ADD COLUMN review_due_at DATETIME")
+            if "review_breached_at" not in sla_columns: connection.exec_driver_sql("ALTER TABLE sla_records ADD COLUMN review_breached_at DATETIME")
+            if "department_breached_at" not in sla_columns: connection.exec_driver_sql("ALTER TABLE sla_records ADD COLUMN department_breached_at DATETIME")
+            connection.exec_driver_sql("UPDATE sla_records SET review_due_at=acknowledgement_due_at WHERE review_due_at IS NULL")
         seed_database()
     yield
 
@@ -271,6 +276,18 @@ def reviewer_decision(complaint_id: str,body: ReviewerDecisionRequest,user: User
     db.commit(); db.refresh(c)
     return {"data":ComplaintOut.model_validate(c),"message":"Priority and route are approved for assignment."}
 
+@app.post("/api/reviewer/complaints/{complaint_id}/reject")
+def reviewer_reject(complaint_id: str,body: ReviewerRejectionRequest,user: User=Depends(require_roles(Role.reviewer,Role.admin)),db: Session=Depends(get_db)):
+    c=db.get(Complaint,complaint_id)
+    if not c: raise HTTPException(404,"Complaint not found")
+    if c.version!=body.expected_version: raise HTTPException(409,"This complaint changed; refresh before reviewing")
+    if c.status not in {ComplaintStatus.awaiting_review,ComplaintStatus.reopened}: raise HTTPException(422,"Only complaints awaiting review can be rejected")
+    c.status=ComplaintStatus.rejected; c.version+=1
+    audit(db,"complaint",c.id,"reviewer_rejected",user,new={"status":"rejected"},reason=body.reason)
+    identity=db.get(ReporterIdentity,c.reporter_identity_id) if c.reporter_identity_id else None
+    if identity and identity.user_id: db.add(Notification(user_id=identity.user_id,complaint_id=c.id,kind="complaint_rejected",message="Your report could not be accepted for municipal action. You may request a correction with more details.",locale=c.language if c.language in ("en","hi","mr") else "en"))
+    db.commit(); return {"message":"Complaint rejected and the resident was notified."}
+
 @app.post("/api/reviewer/complaints/{complaint_id}/assign")
 def assign(complaint_id: str,body: AssignRequest,user: User=Depends(require_roles(Role.reviewer,Role.admin)),db: Session=Depends(get_db)):
     c=db.get(Complaint,complaint_id)
@@ -367,8 +384,21 @@ def confirm_resolution(assignment_id: str,body: AdminResolutionRequest,user: Use
 
 @app.post("/api/admin/escalations/{complaint_id}/simulate")
 def simulate_breach(complaint_id: str,user: User=Depends(require_roles(Role.admin)),db: Session=Depends(get_db)):
-    if not db.get(Complaint,complaint_id): raise HTTPException(404,"Complaint not found")
-    evaluate_sla(db,complaint_id,user); return {"message":"Controlled SLA breach processed through the live escalation workflow."}
+    c=db.get(Complaint,complaint_id)
+    if not c: raise HTTPException(404,"Complaint not found")
+    stage="review" if c.status in {ComplaintStatus.awaiting_review,ComplaintStatus.reopened} else "department"
+    evaluate_sla(db,complaint_id,user,stage); return {"message":"Controlled SLA breach processed through the live escalation workflow."}
+
+@app.post("/api/complaints/{complaint_id}/sla/simulate")
+def simulate_role_sla_breach(complaint_id: str,body: SLASimulationRequest,user: User=Depends(require_roles(Role.reviewer,Role.department,Role.admin)),db: Session=Depends(get_db)):
+    c=db.get(Complaint,complaint_id)
+    if not c: raise HTTPException(404,"Complaint not found")
+    if body.stage=="review" and user.role==Role.department: raise HTTPException(403,"Department users cannot simulate review SLAs")
+    if body.stage=="department" and user.role==Role.department:
+        assignment=db.scalar(select(Assignment).where(Assignment.complaint_id==c.id,Assignment.department_id==user.department_id))
+        if not assignment: raise HTTPException(403,"This task does not belong to your department")
+    evaluate_sla(db,complaint_id,user,body.stage)
+    return {"message":f"{body.stage.title()} SLA breach simulated and escalated to Admin."}
 
 @app.get("/api/admin/dashboard")
 def dashboard(user: User=Depends(require_roles(Role.admin,Role.reviewer)),db: Session=Depends(get_db)):
@@ -413,7 +443,26 @@ def analytics(user: User=Depends(require_roles(Role.admin,Role.reviewer)),db: Se
 @app.get("/api/admin/escalations")
 def escalations(user: User=Depends(require_roles(Role.admin,Role.reviewer)),db: Session=Depends(get_db)):
     rows=db.execute(select(SLARecord,Complaint).join(Complaint).where(or_(SLARecord.breached_at.is_not(None),SLARecord.risk_score>=.6)).order_by(SLARecord.risk_score.desc())).all()
-    return {"data":[{"complaint":ComplaintOut.model_validate(c),"sla":sla} for sla,c in rows]}
+    actions={}
+    for event in db.scalars(select(AuditEvent).where(AuditEvent.action=="admin_breach_action").order_by(AuditEvent.created_at.desc())).all(): actions.setdefault(event.entity_id,event)
+    return {"data":[{"complaint":ComplaintOut.model_validate(c),"sla":sla,"admin_action":({"action":actions[c.id].new_value.get("action"),"note":actions[c.id].reason,"created_at":actions[c.id].created_at} if c.id in actions else None)} for sla,c in rows]}
+
+@app.post("/api/admin/escalations/{complaint_id}/action")
+def admin_breach_action(complaint_id: str,body: AdminEscalationActionRequest,user: User=Depends(require_roles(Role.admin)),db: Session=Depends(get_db)):
+    c=db.get(Complaint,complaint_id); sla=db.scalar(select(SLARecord).where(SLARecord.complaint_id==complaint_id))
+    if not c or not sla or not sla.breached_at: raise HTTPException(404,"An active SLA breach was not found")
+    assignments=db.scalars(select(Assignment).where(Assignment.complaint_id==c.id)).all(); department_ids={item.department_id for item in assignments}
+    recipients=db.scalars(select(User).where(User.department_id.in_(department_ids))).all() if department_ids else []
+    if body.action=="request_update":
+        for recipient in recipients: db.add(Notification(user_id=recipient.id,complaint_id=c.id,kind="admin_update_requested",message=f"Admin requested an immediate breach update for {c.reference_number}.",locale="en"))
+        result="Update request sent to the responsible department."
+    else:
+        sla.resolution_due_at=datetime.now(timezone.utc)+timedelta(hours=body.recovery_hours)
+        for recipient in recipients: db.add(Notification(user_id=recipient.id,complaint_id=c.id,kind="admin_recovery_target",message=f"Admin set a {body.recovery_hours}-hour urgent recovery target for {c.reference_number}.",locale="en"))
+        result=f"A {body.recovery_hours}-hour recovery target was set."
+    audit(db,"complaint",c.id,"admin_breach_action",user,new={"action":body.action,"recovery_hours":body.recovery_hours},reason=body.note or result,source="admin_escalation")
+    db.add(Notification(user_id=user.id,complaint_id=c.id,kind="admin_breach_action",message=result,locale="en")); db.commit()
+    return {"message":result}
 
 @app.get("/api/admin/departments")
 def list_departments(user: User=Depends(require_roles(Role.admin)),db: Session=Depends(get_db)):

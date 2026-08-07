@@ -34,6 +34,7 @@ const nav = {
   ],
   admin: [
     { href: "/admin", label: "Operations overview", icon: LayoutDashboard },
+    { href: "/admin/escalations", label: "SLA escalations", icon: Workflow },
     { href: "/admin/departments", label: "Departments", icon: Users },
     { href: "/admin/audit", label: "Audit trail", icon: ShieldCheck },
   ],

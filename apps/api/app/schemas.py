@@ -68,6 +68,18 @@ class ReviewerDecisionRequest(BaseModel):
     note: str|None = Field(default=None,max_length=1000)
     expected_version: int
 
+class ReviewerRejectionRequest(BaseModel):
+    reason: str = Field(min_length=3,max_length=500)
+    expected_version: int
+
+class SLASimulationRequest(BaseModel):
+    stage: str = Field(default="department", pattern="^(review|department)$")
+
+class AdminEscalationActionRequest(BaseModel):
+    action: str = Field(pattern="^(request_update|recovery_target)$")
+    recovery_hours: int = Field(default=2,ge=1,le=72)
+    note: str|None = Field(default=None,max_length=500)
+
 class StatusRequest(BaseModel):
     status: str
     note: str|None=None

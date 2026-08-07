@@ -8,8 +8,11 @@ branch_labels=None
 depends_on=None
 
 def upgrade():
-    op.add_column("complaints",sa.Column("priority_reviewed",sa.Boolean(),nullable=False,server_default=sa.false()))
-    op.add_column("complaints",sa.Column("routing_approved",sa.Boolean(),nullable=False,server_default=sa.false()))
+    columns={column["name"] for column in sa.inspect(op.get_bind()).get_columns("complaints")}
+    if "priority_reviewed" not in columns:
+        op.add_column("complaints",sa.Column("priority_reviewed",sa.Boolean(),nullable=False,server_default=sa.false()))
+    if "routing_approved" not in columns:
+        op.add_column("complaints",sa.Column("routing_approved",sa.Boolean(),nullable=False,server_default=sa.false()))
 
 def downgrade():
     op.drop_column("complaints","routing_approved")
