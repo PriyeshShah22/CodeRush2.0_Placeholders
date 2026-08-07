@@ -4,6 +4,7 @@ type Variables = Record<string, string | number>;
 
 const hi: Record<string, string> = {
   "Nivaran home": "Nivaran मुखपृष्ठ",
+  Dashboard: "डैशबोर्ड",
   "Translation is being prepared": "अनुवाद तैयार किया जा रहा है",
   Close: "बंद करें",
   "Roads & Public Works": "सड़क और लोक निर्माण",
@@ -361,6 +362,7 @@ const hi: Record<string, string> = {
 
 const mr: Record<string, string> = {
   "Nivaran home": "Nivaran मुखपृष्ठ",
+  Dashboard: "डॅशबोर्ड",
   "Translation is being prepared": "भाषांतर तयार केले जात आहे",
   Close: "बंद करा",
   "Roads & Public Works": "रस्ते आणि सार्वजनिक बांधकाम",

@@ -96,7 +96,9 @@ export function PublicHeader() {
           {user ? (
             <>
               <Button asChild size="sm" variant="outline">
-                <Link href={home}>{t("myComplaints")}</Link>
+                <Link href={home}>
+                  {user.role === "resident" ? t("myComplaints") : tr("Dashboard")}
+                </Link>
               </Button>
               <Button
                 size="icon"
