@@ -196,6 +196,10 @@ def bounded_resolution_hours(priority: Priority, suggested: int|None, rule_hours
     maximum={Priority.critical:24,Priority.high:72,Priority.normal:168,Priority.low:336}[priority]
     return max(1,min(suggested or rule_hours,maximum,720))
 
+def utc_aware(value: datetime) -> datetime:
+    """SQLite drops timezone metadata; treat persisted civic deadlines as UTC."""
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
 def route_complaint(db: Session, complaint: Complaint, suggested_resolution_hours: int|None=None):
     text=f"{complaint.safe_text} {complaint.normalized_text or ''}".casefold()
     categories={complaint.category or "other"}
@@ -276,8 +280,9 @@ def evaluate_sla(db: Session, simulate_id: str|None=None, actor=None):
     for sla in db.scalars(query).all():
         if sla.complaint_id==simulate_id:
             sla.resolution_due_at=now-timedelta(minutes=1); sla.simulated=True
-        remaining=(sla.resolution_due_at-now).total_seconds()
-        total=max((sla.resolution_due_at-(now-timedelta(hours=24))).total_seconds(),1)
+        resolution_due_at=utc_aware(sla.resolution_due_at)
+        remaining=(resolution_due_at-now).total_seconds()
+        total=max((resolution_due_at-(now-timedelta(hours=24))).total_seconds(),1)
         sla.risk_score=round(min(1,max(0,1-remaining/total)),2)
         if remaining<=0:
             sla.breached_at=now; sla.escalation_level+=1
@@ -285,4 +290,9 @@ def evaluate_sla(db: Session, simulate_id: str|None=None, actor=None):
             audit(db,"complaint",c.id,"sla_breached",actor,new={"level":sla.escalation_level,"simulated":sla.simulated},source="sla_worker")
             identity=db.get(ReporterIdentity,c.reporter_identity_id) if c.reporter_identity_id else None
             db.add(Notification(user_id=identity.user_id if identity else None,complaint_id=c.id,kind="sla_escalation",message="Your service request is delayed and has been escalated for supervisor attention.",locale=c.language if c.language in ("en","hi","mr") else "en"))
+            incident=db.scalar(select(IncidentCluster).join(IncidentComplaintLink,IncidentComplaintLink.incident_id==IncidentCluster.id).where(IncidentComplaintLink.complaint_id==c.id))
+            if incident:
+                supporters=db.scalars(select(IncidentSupport).where(IncidentSupport.incident_id==incident.id,IncidentSupport.subscribed.is_(True))).all()
+                for support in supporters:
+                    db.add(Notification(user_id=support.user_id,kind="incident_escalated",message=f"Community issue update: {c.location_text} is delayed and has been escalated.",locale="en"))
     db.commit()

@@ -10,11 +10,13 @@ import {
   Loader2,
   MapPin,
   ShieldCheck,
+  Users,
 } from "lucide-react";
 import { api, Complaint } from "@/lib/api";
 import { useLanguage } from "./language-provider";
 import { ReportForm } from "./report-form";
 import { ComplaintAssistant } from "./complaint-assistant";
+import { NearbyIssues } from "./nearby-issues";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -27,6 +29,7 @@ const dashboardCopy = {
     mine: "My complaints",
     report: "Report issue",
     assistant: "AI assistant",
+    nearby: "Nearby issues",
     load: "We could not load your complaints.",
     retry: "Try again",
     empty: "No complaints yet",
@@ -40,6 +43,7 @@ const dashboardCopy = {
     mine: "मेरी शिकायतें",
     report: "समस्या दर्ज करें",
     assistant: "AI सहायक",
+    nearby: "आस-पास की समस्याएँ",
     load: "आपकी शिकायतें लोड नहीं हो सकीं।",
     retry: "फिर प्रयास करें",
     empty: "अभी कोई शिकायत नहीं",
@@ -53,6 +57,7 @@ const dashboardCopy = {
     mine: "माझ्या तक्रारी",
     report: "समस्या नोंदवा",
     assistant: "AI सहाय्यक",
+    nearby: "जवळच्या समस्या",
     load: "तुमच्या तक्रारी लोड होऊ शकल्या नाहीत.",
     retry: "पुन्हा प्रयत्न करा",
     empty: "अद्याप तक्रार नाही",
@@ -126,6 +131,10 @@ export function ResidentDashboard() {
             <Bot />
             {c.assistant}
           </TabsTrigger>
+          <TabsTrigger value="nearby" className="px-4 py-2">
+            <Users />
+            {c.nearby}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="complaints" className="mt-6">
           {loading ? (
@@ -189,6 +198,9 @@ export function ResidentDashboard() {
         </TabsContent>
         <TabsContent value="assistant" className="mt-6">
           <ComplaintAssistant onFiled={filed} />
+        </TabsContent>
+        <TabsContent value="nearby" className="mt-6">
+          <NearbyIssues />
         </TabsContent>
       </Tabs>
     </div>

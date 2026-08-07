@@ -81,6 +81,11 @@ class AppealRequest(BaseModel):
     kind: str = "appeal"
     message: str = Field(min_length=12, max_length=2000)
 
+class IncidentSupportRequest(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    location_accuracy_metres: float|None = Field(default=None, ge=0, le=10000)
+
 class AssistantMessage(BaseModel):
     session_id: str|None=None
     message: str = Field(min_length=1, max_length=1000)

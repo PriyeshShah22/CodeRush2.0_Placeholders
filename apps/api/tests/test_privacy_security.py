@@ -1,7 +1,8 @@
 from app.schemas import ComplaintCreate
 from app.security import hash_pin, pin_for_idempotency, verify_pin, hash_password, verify_password
 from app.models import Priority
-from app.services import bounded_resolution_hours, hybrid_duplicate_score, redact_pii
+from datetime import datetime, timezone
+from app.services import bounded_resolution_hours, distance_metres, hybrid_duplicate_score, redact_pii, utc_aware
 
 def test_redacts_contact_and_aadhaar_like_values_before_model_processing():
     safe, kinds = redact_pii("Call 9876543210 or me@example.com. ID 1234 5678 9012")
@@ -40,3 +41,12 @@ def test_ai_resolution_recommendation_respects_priority_guardrails():
     assert bounded_resolution_hours(Priority.high, 48, 72) == 48
     assert bounded_resolution_hours(Priority.normal, 240, 72) == 168
     assert bounded_resolution_hours(Priority.low, None, 72) == 72
+
+def test_nearby_incident_distance_is_calculated_server_side():
+    assert distance_metres(18.5204,73.8567,18.5204,73.8567)==0
+    assert 900<distance_metres(18.5204,73.8567,18.5294,73.8567)<1100
+
+def test_sqlite_naive_deadline_is_normalized_to_utc():
+    naive=datetime(2026,8,8,1,0,0)
+    assert utc_aware(naive).tzinfo==timezone.utc
+    assert utc_aware(naive).hour==1
