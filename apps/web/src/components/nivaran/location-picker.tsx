@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LocateFixed, Loader2, MapPin, Search } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -26,15 +26,18 @@ export function LocationPicker({
   point,
   onChange,
   compact = false,
+  autoDetect = false,
 }: {
   value: string;
   point?: Point;
   onChange: (address: string, point?: Point) => void;
   compact?: boolean;
+  autoDetect?: boolean;
 }) {
   const [results, setResults] = useState<Suggestion[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const attemptedAutoDetect=useRef(false);
   async function search() {
     if (value.trim().length < 3) return;
     setBusy(true);
@@ -91,6 +94,11 @@ export function LocationPicker({
       { enableHighAccuracy: true, timeout: 12000 },
     );
   }
+  useEffect(()=>{
+    if(autoDetect&&!point&&!attemptedAutoDetect.current){attemptedAutoDetect.current=true;detect();}
+    // Auto-detection intentionally runs once; subsequent location changes are user-driven.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[autoDetect,point]);
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
@@ -147,9 +155,7 @@ export function LocationPicker({
         </div>
       )}
       {error && (
-        <p role="alert" className="text-sm text-red-700">
-          {error}
-        </p>
+        <div role="status" className="border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><p>{error}</p><p className="mt-1 text-xs">Location permission is optional. Search for the address or click the map to place the complaint pin manually.</p></div>
       )}
       {!compact && (
         <div className="overflow-hidden border">

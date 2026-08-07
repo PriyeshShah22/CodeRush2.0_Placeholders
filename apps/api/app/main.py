@@ -15,7 +15,7 @@ from .db import get_db
 from .models import *
 from .schemas import *
 from .security import *
-from .services import assistant_response, audit, evaluate_sla, geocode_search, redact_pii, reference_number, reverse_geocode, route_complaint, transcribe_audio
+from .services import assistant_response, audit, distance_metres, evaluate_sla, geocode_search, redact_pii, reference_number, reverse_geocode, route_complaint, transcribe_audio
 
 limiter=Limiter(key_func=get_remote_address)
 
@@ -103,6 +103,19 @@ def persist_complaint(db: Session,body: ComplaintCreate,idempotency_key: str,use
     db.commit(); db.refresh(c)
     return {"data":{"complaint":ComplaintOut.model_validate(c),"tracking_pin":pin},"message":"Your report is saved and queued for review."}
 
+def incident_for_complaint(db: Session,complaint_id: str):
+    return db.scalar(select(IncidentCluster).join(IncidentComplaintLink,IncidentComplaintLink.incident_id==IncidentCluster.id).where(IncidentComplaintLink.complaint_id==complaint_id))
+
+def incident_support_count(db: Session,incident_id: str) -> int:
+    return db.scalar(select(func.count()).select_from(IncidentSupport).where(IncidentSupport.incident_id==incident_id)) or 0
+
+def notify_incident_supporters(db: Session,complaint: Complaint,kind: str,message: str):
+    incident=incident_for_complaint(db,complaint.id)
+    if not incident: return
+    supporters=db.scalars(select(IncidentSupport).where(IncidentSupport.incident_id==incident.id,IncidentSupport.subscribed.is_(True))).all()
+    for support in supporters:
+        db.add(Notification(user_id=support.user_id,complaint_id=None,kind=kind,message=message,locale="en"))
+
 @app.post("/api/complaints",response_model=dict)
 @limiter.limit("10/hour")
 def create_complaint(request: Request,body: ComplaintCreate,idempotency_key: str=Header(min_length=8),db: Session=Depends(get_db),user: User|None=Depends(optional_current_user)):
@@ -133,6 +146,58 @@ def resident_complaints(user: User=Depends(require_roles(Role.resident)),db: Ses
         grouped.append(ComplaintOut.model_validate(complaint).model_copy(update={"linked_reports":count}))
     return {"data":grouped}
 
+@app.get("/api/community/issues/nearby")
+@limiter.limit("30/minute")
+def nearby_issues(request: Request,latitude: float,longitude: float,radius: int=2000,user: User=Depends(require_roles(Role.resident)),db: Session=Depends(get_db)):
+    if not -90<=latitude<=90 or not -180<=longitude<=180: raise HTTPException(422,"Invalid coordinates")
+    radius=max(100,min(radius,5000))
+    supported=set(db.scalars(select(IncidentSupport.incident_id).where(IncidentSupport.user_id==user.id)).all())
+    rows=[]
+    clusters=db.scalars(select(IncidentCluster).where(IncidentCluster.status=="open")).all()
+    for cluster in clusters:
+        complaint=db.scalar(select(Complaint).join(IncidentComplaintLink,IncidentComplaintLink.complaint_id==Complaint.id).where(IncidentComplaintLink.incident_id==cluster.id,Complaint.latitude.is_not(None),Complaint.longitude.is_not(None)).order_by(Complaint.created_at))
+        if not complaint: continue
+        distance=distance_metres(latitude,longitude,complaint.latitude,complaint.longitude)
+        if distance is None or distance>radius: continue
+        confirmations=incident_support_count(db,cluster.id)
+        rows.append({
+            "id":cluster.id,
+            "title":cluster.title,
+            "category":cluster.category,
+            "status":complaint.status.value,
+            "location_text":complaint.location_text,
+            "distance_metres":round(distance),
+            "independent_reports":cluster.duplicate_count,
+            "affected_residents":cluster.duplicate_count+confirmations,
+            "community_confirmations":confirmations,
+            "already_affected":cluster.id in supported,
+            "updated_at":complaint.updated_at,
+        })
+    rows.sort(key=lambda item:item["distance_metres"])
+    return {"data":rows}
+
+@app.post("/api/community/incidents/{incident_id}/affected")
+@limiter.limit("12/hour")
+def confirm_affected(request: Request,incident_id: str,body: IncidentSupportRequest,user: User=Depends(require_roles(Role.resident)),db: Session=Depends(get_db)):
+    incident=db.get(IncidentCluster,incident_id)
+    if not incident or incident.status!="open": raise HTTPException(404,"Community issue not found")
+    existing=db.scalar(select(IncidentSupport).where(IncidentSupport.incident_id==incident.id,IncidentSupport.user_id==user.id))
+    if existing: raise HTTPException(409,"You already confirmed that this issue affects you")
+    complaint=db.scalar(select(Complaint).join(IncidentComplaintLink,IncidentComplaintLink.complaint_id==Complaint.id).where(IncidentComplaintLink.incident_id==incident.id,Complaint.latitude.is_not(None),Complaint.longitude.is_not(None)).order_by(Complaint.created_at))
+    if not complaint: raise HTTPException(422,"This issue does not have a verifiable location")
+    distance=distance_metres(body.latitude,body.longitude,complaint.latitude,complaint.longitude)
+    allowed_radius={"roads":500,"streetlight":750,"sanitation":1000,"water":2000,"drainage":2000,"flooding":2000}.get(incident.category,1000)
+    if distance is None or distance>allowed_radius:
+        raise HTTPException(403,f"You must be within {allowed_radius} metres of this issue")
+    support=IncidentSupport(incident_id=incident.id,user_id=user.id,latitude=body.latitude,longitude=body.longitude,distance_metres=round(distance,1),location_accuracy_metres=body.location_accuracy_metres)
+    db.add(support); db.flush()
+    confirmations=incident_support_count(db,incident.id)
+    affected=incident.duplicate_count+confirmations
+    audit(db,"incident",incident.id,"resident_affected_confirmed",user,new={"distance_metres":round(distance),"affected_residents":affected})
+    db.add(Notification(user_id=user.id,kind="incident_subscription",message=f"You will receive updates about {incident.title}.",locale=user.preferred_language))
+    db.commit()
+    return {"data":{"incident_id":incident.id,"affected_residents":affected,"already_affected":True},"message":"You are now linked to this community issue and subscribed to updates."}
+
 @app.get("/api/complaints/{complaint_id}")
 def complaint_detail(complaint_id: str,user: User=Depends(current_user),db: Session=Depends(get_db)):
     c=db.scalar(select(Complaint).options(joinedload(Complaint.analysis)).where(Complaint.id==complaint_id))
@@ -144,7 +209,14 @@ def complaint_detail(complaint_id: str,user: User=Depends(current_user),db: Sess
     sla=db.scalar(select(SLARecord).where(SLARecord.complaint_id==c.id))
     events=db.scalars(select(AuditEvent).where(AuditEvent.entity_id==c.id).order_by(AuditEvent.created_at.desc())).all()
     incident_row=db.execute(select(IncidentComplaintLink,IncidentCluster).join(IncidentCluster,IncidentCluster.id==IncidentComplaintLink.incident_id).where(IncidentComplaintLink.complaint_id==c.id)).first()
-    incident={"id":incident_row[1].id,"title":incident_row[1].title,"linked_reports":incident_row[1].duplicate_count,"match_score":incident_row[0].similarity_score,"match_reasons":incident_row[0].reasons,"clubbed":not bool(incident_row[0].reasons.get("canonical_report"))} if incident_row else None
+    incident=None
+    if incident_row:
+        cluster=incident_row[1]
+        confirmations=incident_support_count(db,cluster.id)
+        affected=cluster.duplicate_count+confirmations
+        age_days=max(0,(datetime.now(timezone.utc)-(cluster.created_at.replace(tzinfo=timezone.utc) if cluster.created_at.tzinfo is None else cluster.created_at)).days)
+        suggested_priority="high" if affected>=20 or (affected>=7 and age_days>=3) else c.priority.value
+        incident={"id":cluster.id,"title":cluster.title,"linked_reports":cluster.duplicate_count,"community_confirmations":confirmations,"affected_residents":affected,"issue_age_days":age_days,"community_suggested_priority":suggested_priority,"match_score":incident_row[0].similarity_score,"match_reasons":incident_row[0].reasons,"clubbed":not bool(incident_row[0].reasons.get("canonical_report"))}
     public_reasons={"resident_review_requested","sla_breached"}
     timeline=[{"id":event.id,"action":event.action,"created_at":event.created_at,"reason":event.reason if event.action in public_reasons else None} for event in events]
     return {"data":{"complaint":ComplaintOut.model_validate(c),"analysis":c.analysis,"routes":[{"id":r.id,"department_id":d.id,"department":d.name,"factors":r.factors,"rank":r.rank} for r,d in routes],"incident":incident,"sla":sla,"timeline":timeline}}
@@ -265,7 +337,9 @@ def task_status(assignment_id: str,body: StatusRequest,user: User=Depends(requir
     if body.status=="acknowledged": a.acknowledged_at=datetime.now(timezone.utc); c.status=ComplaintStatus.acknowledged
     elif body.status=="in_progress": c.status=ComplaintStatus.in_progress
     else: a.resolved_at=datetime.now(timezone.utc); c.status=ComplaintStatus.resolved
-    c.version+=1; audit(db,"complaint",c.id,f"department_{body.status}",user,reason=body.note); db.commit()
+    c.version+=1; audit(db,"complaint",c.id,f"department_{body.status}",user,reason=body.note)
+    notify_incident_supporters(db,c,f"incident_{body.status}",f"Community issue update: {c.location_text} is now {body.status.replace('_',' ')}.")
+    db.commit()
     return {"message":"Task status and resident timeline updated."}
 
 @app.post("/api/admin/escalations/{complaint_id}/simulate")
@@ -297,7 +371,8 @@ def dashboard(user: User=Depends(require_roles(Role.admin,Role.reviewer)),db: Se
     for key,complaint in incidents.items():
         if complaint.latitude is None or complaint.longitude is None: continue
         cluster=clusters.get(key)
-        map_points.append({"id":key,"label":complaint.location_text,"latitude":complaint.latitude,"longitude":complaint.longitude,"count":cluster.duplicate_count if cluster else 1,"category":complaint.category or "other","status":complaint.status.value})
+        confirmations=incident_support_count(db,cluster.id) if cluster else 0
+        map_points.append({"id":key,"label":complaint.location_text,"latitude":complaint.latitude,"longitude":complaint.longitude,"count":(cluster.duplicate_count if cluster else 1)+confirmations,"independent_reports":cluster.duplicate_count if cluster else 1,"community_confirmations":confirmations,"category":complaint.category or "other","status":complaint.status.value})
     now=datetime.now(timezone.utc)
     deadline_rows=db.execute(select(SLARecord,Complaint).join(Complaint).where(Complaint.status!=ComplaintStatus.resolved).order_by(SLARecord.resolution_due_at).limit(8)).all()
     deadlines=[]

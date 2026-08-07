@@ -136,6 +136,20 @@ class IncidentComplaintLink(Base):
     similarity_score: Mapped[float]=mapped_column(Float)
     reasons: Mapped[dict]=mapped_column(JSON, default=dict)
 
+class IncidentSupport(Base):
+    __tablename__="incident_supports"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=uid)
+    incident_id: Mapped[str]=mapped_column(ForeignKey("incident_clusters.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str]=mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    latitude: Mapped[float]=mapped_column(Float)
+    longitude: Mapped[float]=mapped_column(Float)
+    distance_metres: Mapped[float]=mapped_column(Float)
+    location_accuracy_metres: Mapped[float|None]=mapped_column(Float)
+    verification_method: Mapped[str]=mapped_column(String(32), default="browser_gps")
+    subscribed: Mapped[bool]=mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
+    __table_args__=(UniqueConstraint("incident_id","user_id",name="uq_incident_support_user"),)
+
 class RouteRecommendation(Base):
     __tablename__="route_recommendations"
     id: Mapped[str]=mapped_column(String(36), primary_key=True, default=uid)

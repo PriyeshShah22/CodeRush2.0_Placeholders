@@ -1,0 +1,10 @@
+"use client";
+
+import { Check, Loader2, MapPin, Users } from "lucide-react";
+import { NearbyIssue } from "./nearby-issues";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+
+export function DuplicateComplaintCheck({issues,busy,onSame,onContinue,onBack}:{issues:NearbyIssue[];busy?:string;onSame:(issue:NearbyIssue)=>void;onContinue:()=>void;onBack:()=>void}){
+  return <section className="border border-amber-300 bg-amber-50/50 p-5 sm:p-6"><p className="eyebrow">Possible matching issues</p><h3 className="mt-2 text-2xl font-bold">Has this already been reported?</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">These nearby incidents look similar. Link yourself to an existing issue to receive updates, or continue if yours is a different problem.</p><div className="mt-5 space-y-3">{issues.map(issue=><article key={issue.id} className="border bg-card p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap gap-2"><Badge variant="outline" className="capitalize">{issue.category.replaceAll("_"," ")}</Badge><Badge variant="secondary" className="capitalize">{issue.status.replaceAll("_"," ")}</Badge></div><b className="mt-2 block">{issue.title}</b><p className="mt-1 line-clamp-1 text-xs text-muted-foreground"><MapPin className="mr-1 inline size-3"/>{issue.location_text}</p></div><span className="flex items-center gap-1 text-sm font-bold"><Users className="size-4 text-civic"/>{issue.affected_residents}</span></div><Button className="mt-3" size="sm" disabled={issue.already_affected||Boolean(busy)} onClick={()=>onSame(issue)}>{issue.already_affected?<><Check/>Reported as Same Issue</>:busy===issue.id?<><Loader2 className="animate-spin"/>Linking…</>:"Report Same Issue"}</Button></article>)}</div><div className="mt-5 flex flex-wrap justify-between gap-3 border-t pt-4"><Button variant="ghost" onClick={onBack}>Edit complaint</Button><Button variant="outline" disabled={Boolean(busy)} onClick={onContinue}>Continue creating new complaint</Button></div></section>;
+}
