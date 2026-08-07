@@ -1754,23 +1754,11 @@
           "priority": {
             "$ref": "#/components/schemas/Priority"
           },
-          "location_text": {
-            "type": "string",
-            "maxLength": 240,
-            "minLength": 3,
-            "title": "Location Text"
-          },
-          "ward": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 80
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ward"
+          "resolution_hours": {
+            "type": "integer",
+            "maximum": 720.0,
+            "minimum": 1.0,
+            "title": "Resolution Hours"
           },
           "reason_code": {
             "anyOf": [
@@ -1805,7 +1793,7 @@
         "required": [
           "category",
           "priority",
-          "location_text",
+          "resolution_hours",
           "expected_version"
         ],
         "title": "ReviewerDecisionRequest"

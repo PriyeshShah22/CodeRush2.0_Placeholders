@@ -73,19 +73,30 @@ export function LoginForm() {
     setError("");
     const data = new FormData(event.currentTarget);
     try {
-      await api("/auth/login", {
+      const response = await api<{
+        data: { role: "resident" | "reviewer" | "department" | "admin" };
+      }>("/auth/login", {
         method: "POST",
         body: JSON.stringify({
           email: data.get("email"),
           password: data.get("password"),
         }),
       });
-      toast.success(`Signed in as ${selected.role}`);
+      const roleHome = {
+        resident: "/resident",
+        reviewer: "/reviewer",
+        department: "/department",
+        admin: "/admin",
+      } as const;
+      toast.success(`Signed in as ${response.data.role}`);
       const requested = new URLSearchParams(window.location.search).get("next");
+      const requestedMatchesRole =
+        requested?.startsWith(`/${response.data.role}`) ||
+        (response.data.role === "resident" && requested === "/track");
       const destination =
-        selected.role === "Resident" && requested?.startsWith("/")
+        requested && requestedMatchesRole
           ? requested
-          : selected.path;
+          : roleHome[response.data.role];
       router.push(destination);
       router.refresh();
     } catch (reason) {

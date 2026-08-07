@@ -2,6 +2,7 @@ import json
 import math
 import re
 import secrets
+from difflib import SequenceMatcher
 import httpx
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
@@ -46,6 +47,7 @@ class TriageOutput(BaseModel):
     category_confidence: float
     priority: str
     priority_confidence: float
+    resolution_hours: int
     entities: ExtractedEntities
     clarification_questions: list[str]
     explanation: str
@@ -59,7 +61,7 @@ def openai_triage(complaint: Complaint) -> TriageOutput:
         model=settings.openai_text_model,
         reasoning={"effort":"low"},
         input=[
-            {"role":"system","content":"You triage civic service reports for a synthetic Indian municipality. Extract only evidence present. Never decide eligibility, reject a report, or invent a department. Translate to concise English while preserving meaning. Priority must be low, normal, high, or critical. Category must be one of: "+", ".join(CATEGORIES)},
+            {"role":"system","content":"You triage civic service reports for a synthetic Indian municipality. Extract only evidence present. Never decide eligibility, reject a report, or invent a department. Translate to concise English while preserving meaning. Priority must be low, normal, high, or critical. Recommend a realistic resolution_hours between 1 and 720 based on safety impact, scale, and service complexity; this remains subject to human approval and deterministic priority caps. Category must be one of: "+", ".join(CATEGORIES)},
             {"role":"user","content":f"Privacy-safe report: {complaint.safe_text}\nLocation: {complaint.location_text}\nWard hint: {complaint.ward or 'unknown'}"},
         ],
         text_format=TriageOutput,
@@ -166,24 +168,32 @@ def distance_metres(lat1: float|None,lon1: float|None,lat2: float|None,lon2: flo
 
 def deduplicate_complaint(db: Session, complaint: Complaint):
     clusters=db.scalars(select(IncidentCluster).where(IncidentCluster.status=="open")).all()
-    texts=[complaint.safe_text]+[f"{c.title}. {c.category}. {c.ward}" for c in clusters if c.embedding is None]
-    vectors=embed_texts(texts); complaint_vector=vectors[0]; cursor=1
-    for cluster in clusters:
-        if cluster.embedding is None:
-            cluster.embedding=vectors[cursor]; cursor+=1
+    complaint_vector=None
+    try:
+        texts=[complaint.safe_text]+[f"{c.title}. {c.category}. {c.ward}" for c in clusters if c.embedding is None]
+        vectors=embed_texts(texts); complaint_vector=vectors[0]; cursor=1
+        for cluster in clusters:
+            if cluster.embedding is None:
+                cluster.embedding=vectors[cursor]; cursor+=1
+    except Exception:
+        pass
     db.flush()
     best=None
     for cluster in clusters:
-        a=complaint_vector; b=list(cluster.embedding) if cluster.embedding is not None else []
-        dot=sum(x*y for x,y in zip(a,b)); norm_a=sum(x*x for x in a)**.5; norm_b=sum(x*x for x in b)**.5
-        semantic=dot/max(norm_a*norm_b,1e-9)
         representative=db.scalar(select(Complaint).join(IncidentComplaintLink,IncidentComplaintLink.complaint_id==Complaint.id).where(IncidentComplaintLink.incident_id==cluster.id).order_by(Complaint.created_at.desc()))
+        if complaint_vector is not None and cluster.embedding is not None:
+            a=complaint_vector; b=list(cluster.embedding)
+            dot=sum(x*y for x,y in zip(a,b)); norm_a=sum(x*x for x in a)**.5; norm_b=sum(x*x for x in b)**.5
+            semantic=dot/max(norm_a*norm_b,1e-9)
+        else:
+            semantic=SequenceMatcher(None,complaint.safe_text.casefold(),(representative.safe_text if representative else cluster.title).casefold()).ratio()
         metres=distance_metres(complaint.latitude,complaint.longitude,representative.latitude if representative else None,representative.longitude if representative else None)
         location_match=1.0 if metres is not None and metres<=250 else .85 if representative and complaint.location_text.casefold()==representative.location_text.casefold() else .7 if cluster.ward==complaint.ward else .2
         time_hours=max(0,(complaint.created_at-(representative.created_at if representative else cluster.created_at)).total_seconds()/3600)
         time_score=1.0 if time_hours<=24 else .75 if time_hours<=168 else .4
         category=1.0 if cluster.category==complaint.category else .2
         hybrid=round(semantic*.45+category*.2+location_match*.25+time_score*.1,3)
+        if category==1 and location_match==1 and time_hours<=168: hybrid=max(hybrid,.82)
         if best is None or hybrid>best[0]: best=(hybrid,cluster,semantic,category,location_match,metres,time_hours)
     if best and best[0]>=.78:
         hybrid,cluster,semantic,category,location_match,metres,time_hours=best
@@ -197,7 +207,11 @@ def deduplicate_complaint(db: Session, complaint: Complaint):
     db.add(cluster); db.flush(); db.add(IncidentComplaintLink(incident_id=cluster.id,complaint_id=complaint.id,similarity_score=1,reasons={"canonical_report":True}))
     return cluster,1.0
 
-def route_complaint(db: Session, complaint: Complaint):
+def bounded_resolution_hours(priority: Priority, suggested: int|None, rule_hours: int) -> int:
+    maximum={Priority.critical:24,Priority.high:72,Priority.normal:168,Priority.low:336}[priority]
+    return max(1,min(suggested or rule_hours,maximum,720))
+
+def route_complaint(db: Session, complaint: Complaint, suggested_resolution_hours: int|None=None):
     text=f"{complaint.safe_text} {complaint.normalized_text or ''}".casefold()
     categories={complaint.category or "other"}
     keyword_categories={
@@ -226,7 +240,7 @@ def route_complaint(db: Session, complaint: Complaint):
     for rank,(score,rule,dept,factors) in enumerate(recs[:4],1):
         db.add(RouteRecommendation(complaint_id=complaint.id,department_id=dept.id,score=score,confidence=score,factors=factors,service_rule_version=rule.version,rank=rank))
     if recs:
-        hours=recs[0][1].resolution_hours
+        hours=bounded_resolution_hours(complaint.priority,suggested_resolution_hours,recs[0][1].resolution_hours)
         ack=recs[0][1].acknowledgement_hours
         db.add(SLARecord(complaint_id=complaint.id,acknowledgement_due_at=datetime.now(timezone.utc)+timedelta(hours=ack),resolution_due_at=datetime.now(timezone.utc)+timedelta(hours=hours),risk_score=0.15))
     return recs
@@ -249,19 +263,25 @@ def process_complaint(db: Session, job: ProcessingJob):
         complaint.ai_state="completed"
         db.add(ComplaintAnalysis(complaint_id=complaint.id,entities=triage.entities.model_dump(),clarification_questions=triage.clarification_questions,model_name=settings.openai_text_model))
         cluster,duplicate_score=deduplicate_complaint(db,complaint)
-        routes=route_complaint(db,complaint)
+        routes=route_complaint(db,complaint,triage.resolution_hours)
         confidence=min([complaint.category_confidence]+([routes[0][0]] if routes else [0]))
         complaint.status=ComplaintStatus.awaiting_review
         job.status=JobStatus.completed if confidence>=0.65 else JobStatus.manual_review_required
-        audit(db,"complaint",complaint.id,"ai_triage_completed",new={"category":complaint.category,"priority":complaint.priority.value,"confidence":confidence},source="worker")
+        audit(db,"complaint",complaint.id,"ai_triage_completed",new={"category":complaint.category,"priority":complaint.priority.value,"resolution_hours":triage.resolution_hours,"confidence":confidence},source="worker")
         audit(db,"complaint",complaint.id,"duplicate_evaluated",new={"incident_id":cluster.id,"hybrid_score":duplicate_score},source="worker")
     except Exception as exc:
+        lowered=complaint.safe_text.casefold()
+        fallback={"roads":("pothole","road","रस्ता","सड़क","खड्डा"),"water":("water","pipeline","leak","पाणी","पानी"),"drainage":("drain","नाला","नाली"),"sanitation":("garbage","waste","कचरा")}
+        complaint.category=next((category for category,words in fallback.items() if any(word in lowered for word in words)),complaint.category or "other")
         complaint.ai_state="unavailable"
         complaint.status=ComplaintStatus.awaiting_review
         complaint.ai_explanation="AI processing is unavailable. This report is preserved and requires human review."
         job.status=JobStatus.manual_review_required
         job.error=type(exc).__name__
+        cluster,duplicate_score=deduplicate_complaint(db,complaint)
+        route_complaint(db,complaint)
         audit(db,"complaint",complaint.id,"ai_triage_degraded",reason="Provider unavailable; manual review required",source="worker")
+        audit(db,"complaint",complaint.id,"duplicate_evaluated",new={"incident_id":cluster.id,"hybrid_score":duplicate_score,"mode":"local_fallback"},source="worker")
     complaint.version+=1
     db.commit()
 

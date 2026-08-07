@@ -122,7 +122,16 @@ def track(request: Request,body: TrackRequest,user: User=Depends(require_roles(R
 @app.get("/api/complaints")
 def resident_complaints(user: User=Depends(require_roles(Role.resident)),db: Session=Depends(get_db)):
     rows=db.scalars(select(Complaint).join(ReporterIdentity).where(ReporterIdentity.user_id==user.id).order_by(Complaint.created_at.desc())).all()
-    return {"data":[ComplaintOut.model_validate(c) for c in rows]}
+    links={link.complaint_id:link.incident_id for link in db.scalars(select(IncidentComplaintLink)).all()}
+    clusters={cluster.id:cluster for cluster in db.scalars(select(IncidentCluster)).all()}
+    seen=set(); grouped=[]
+    for complaint in rows:
+        incident_id=links.get(complaint.id)
+        if incident_id and incident_id in seen: continue
+        if incident_id: seen.add(incident_id)
+        count=clusters[incident_id].duplicate_count if incident_id in clusters else 1
+        grouped.append(ComplaintOut.model_validate(complaint).model_copy(update={"linked_reports":count}))
+    return {"data":grouped}
 
 @app.get("/api/complaints/{complaint_id}")
 def complaint_detail(complaint_id: str,user: User=Depends(current_user),db: Session=Depends(get_db)):
@@ -178,18 +187,28 @@ def reviewer_decision(complaint_id: str,body: ReviewerDecisionRequest,user: User
     configured_categories=set(db.scalars(select(ServiceRule.category)).all())|{"other"}
     if body.category not in configured_categories: raise HTTPException(422,"Category is not covered by a configured service rule")
     changes={}
-    for field,new_value in {"category":body.category,"priority":body.priority,"location_text":body.location_text,"ward":body.ward}.items():
+    for field,new_value in {"category":body.category,"priority":body.priority}.items():
         old=getattr(c,field); old_value=old.value if hasattr(old,"value") else old
         next_value=new_value.value if hasattr(new_value,"value") else new_value
         if old_value!=next_value: changes[field]=(old_value,next_value)
-    if changes and not body.reason_code: raise HTTPException(422,"A reason is required when changing an AI recommendation")
     for field,(old_value,next_value) in changes.items():
         setattr(c,field,Priority(next_value) if field=="priority" else next_value)
-        db.add(HumanOverride(complaint_id=c.id,field=field,previous_value=str(old_value),new_value=str(next_value),reason_code=body.reason_code or "accepted_as_recommended",note=body.note,actor_id=user.id))
-    if set(changes)&{"category","priority","ward"}:
+        db.add(HumanOverride(complaint_id=c.id,field=field,previous_value=str(old_value),new_value=str(next_value),reason_code=body.reason_code or "reviewer_adjustment",note=body.note,actor_id=user.id))
+    current_sla=db.scalar(select(SLARecord).where(SLARecord.complaint_id==c.id))
+    current_due=current_sla.resolution_due_at.replace(tzinfo=timezone.utc) if current_sla and current_sla.resolution_due_at.tzinfo is None else current_sla.resolution_due_at if current_sla else None
+    old_hours=max(1,round((current_due-datetime.now(timezone.utc)).total_seconds()/3600)) if current_due else None
+    if old_hours!=body.resolution_hours:
+        db.add(HumanOverride(complaint_id=c.id,field="resolution_hours",previous_value=str(old_hours or "unset"),new_value=str(body.resolution_hours),reason_code="reviewer_adjustment",note=body.note,actor_id=user.id))
+        changes["resolution_hours"]=(old_hours,body.resolution_hours)
+    if "category" in changes:
         db.execute(delete(RouteRecommendation).where(RouteRecommendation.complaint_id==c.id))
         db.execute(delete(SLARecord).where(SLARecord.complaint_id==c.id))
-        route_complaint(db,c)
+        route_complaint(db,c,body.resolution_hours)
+    elif current_sla:
+        current_sla.resolution_due_at=datetime.now(timezone.utc)+timedelta(hours=body.resolution_hours)
+        current_sla.risk_score=0.15
+    else:
+        route_complaint(db,c,body.resolution_hours)
     c.priority_reviewed=True; c.routing_approved=True; c.version+=1
     audit(db,"complaint",c.id,"reviewer_decision_approved",user,old={field:old for field,(old,_) in changes.items()},new={"changes":{field:new for field,(_,new) in changes.items()},"priority_reviewed":True,"routing_approved":True},reason=body.note)
     db.commit(); db.refresh(c)
@@ -221,7 +240,8 @@ def assign(complaint_id: str,body: AssignRequest,user: User=Depends(require_role
 def department_tasks(user: User=Depends(require_roles(Role.department,Role.admin)),db: Session=Depends(get_db)):
     q=select(Assignment,Complaint).join(Complaint).order_by(Assignment.assigned_at.desc())
     if user.role==Role.department: q=q.where(Assignment.department_id==user.department_id)
-    rows=db.execute(q).all(); return {"data":[{"assignment":a,"complaint":ComplaintOut.model_validate(c)} for a,c in rows]}
+    rows=db.execute(q).all(); slas={sla.complaint_id:sla for sla in db.scalars(select(SLARecord)).all()}
+    return {"data":[{"assignment":a,"complaint":ComplaintOut.model_validate(c),"sla":slas.get(c.id)} for a,c in rows]}
 
 @app.get("/api/department/tasks/{assignment_id}")
 def department_task(assignment_id: str,user: User=Depends(require_roles(Role.department,Role.admin)),db: Session=Depends(get_db)):
@@ -230,7 +250,8 @@ def department_task(assignment_id: str,user: User=Depends(require_roles(Role.dep
     if user.role==Role.department and assignment.department_id!=user.department_id: raise HTTPException(403,"Task belongs to another department")
     complaint=db.get(Complaint,assignment.complaint_id)
     dependencies=db.scalars(select(TaskDependency).where(or_(TaskDependency.parent_assignment_id==assignment.id,TaskDependency.depends_on_assignment_id==assignment.id))).all()
-    return {"data":{"assignment":assignment,"complaint":ComplaintOut.model_validate(complaint),"dependencies":dependencies}}
+    sla=db.scalar(select(SLARecord).where(SLARecord.complaint_id==complaint.id))
+    return {"data":{"assignment":assignment,"complaint":ComplaintOut.model_validate(complaint),"dependencies":dependencies,"sla":sla}}
 
 @app.post("/api/department/tasks/{assignment_id}/status")
 def task_status(assignment_id: str,body: StatusRequest,user: User=Depends(require_roles(Role.department,Role.admin)),db: Session=Depends(get_db)):
@@ -254,13 +275,38 @@ def simulate_breach(complaint_id: str,user: User=Depends(require_roles(Role.admi
 
 @app.get("/api/admin/dashboard")
 def dashboard(user: User=Depends(require_roles(Role.admin,Role.reviewer)),db: Session=Depends(get_db)):
-    open_count=db.scalar(select(func.count()).select_from(Complaint).where(Complaint.status!=ComplaintStatus.resolved)) or 0
-    resolved=db.scalar(select(func.count()).select_from(Complaint).where(Complaint.status==ComplaintStatus.resolved)) or 0
+    complaints=db.scalars(select(Complaint).order_by(Complaint.created_at)).all()
+    links={link.complaint_id:link.incident_id for link in db.scalars(select(IncidentComplaintLink)).all()}
+    clusters={cluster.id:cluster for cluster in db.scalars(select(IncidentCluster)).all()}
+    incidents={}
+    for complaint in complaints:
+        key=links.get(complaint.id) or complaint.id
+        incidents.setdefault(key,complaint)
+        if complaint.updated_at>incidents[key].updated_at: incidents[key]=complaint
+    representatives=list(incidents.values())
+    open_count=sum(1 for complaint in representatives if complaint.status!=ComplaintStatus.resolved)
+    resolved=sum(1 for complaint in representatives if complaint.status==ComplaintStatus.resolved)
     breached=db.scalar(select(func.count()).select_from(SLARecord).where(SLARecord.breached_at.is_not(None))) or 0
     total_sla=db.scalar(select(func.count()).select_from(SLARecord)) or 0
-    categories=db.execute(select(Complaint.category,func.count()).group_by(Complaint.category)).all()
-    wards=db.execute(select(Complaint.ward,func.count()).group_by(Complaint.ward)).all()
-    return {"data":{"open_complaints":open_count,"resolved_complaints":resolved,"active_breaches":breached,"sla_compliance":round((1-breached/max(total_sla,1))*100,1),"categories":[{"name":k or "Unclassified","value":v} for k,v in categories],"wards":[{"name":k or "Unknown","value":v} for k,v in wards]}}
+    category_counts={}; ward_counts={}; status_counts={}
+    for complaint in representatives:
+        category_counts[complaint.category or "Unclassified"]=category_counts.get(complaint.category or "Unclassified",0)+1
+        ward_counts[complaint.ward or "Unknown"]=ward_counts.get(complaint.ward or "Unknown",0)+1
+        status_counts[complaint.status.value]=status_counts.get(complaint.status.value,0)+1
+    map_points=[]
+    for key,complaint in incidents.items():
+        if complaint.latitude is None or complaint.longitude is None: continue
+        cluster=clusters.get(key)
+        map_points.append({"id":key,"label":complaint.location_text,"latitude":complaint.latitude,"longitude":complaint.longitude,"count":cluster.duplicate_count if cluster else 1,"category":complaint.category or "other","status":complaint.status.value})
+    now=datetime.now(timezone.utc)
+    deadline_rows=db.execute(select(SLARecord,Complaint).join(Complaint).where(Complaint.status!=ComplaintStatus.resolved).order_by(SLARecord.resolution_due_at).limit(8)).all()
+    deadlines=[]
+    for sla,complaint in deadline_rows:
+        incident_key=links.get(complaint.id) or complaint.id
+        if incidents.get(incident_key).id!=complaint.id: continue
+        due=sla.resolution_due_at.replace(tzinfo=timezone.utc) if sla.resolution_due_at.tzinfo is None else sla.resolution_due_at
+        deadlines.append({"complaint_id":complaint.id,"reference_number":complaint.reference_number,"title":complaint.title or complaint.normalized_text or complaint.safe_text,"priority":complaint.priority.value,"status":complaint.status.value,"resolution_due_at":due,"remaining_hours":round((due-now).total_seconds()/3600,1)})
+    return {"data":{"open_complaints":open_count,"resolved_complaints":resolved,"active_breaches":breached,"sla_compliance":round((1-breached/max(total_sla,1))*100,1),"categories":[{"name":k,"value":v} for k,v in category_counts.items()],"wards":[{"name":k,"value":v} for k,v in ward_counts.items()],"statuses":[{"name":k,"value":v} for k,v in status_counts.items()],"map_points":map_points,"deadlines":deadlines}}
 
 @app.get("/api/admin/analytics")
 def analytics(user: User=Depends(require_roles(Role.admin,Role.reviewer)),db: Session=Depends(get_db)):

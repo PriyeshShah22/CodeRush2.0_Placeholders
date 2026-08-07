@@ -1,6 +1,7 @@
 from app.schemas import ComplaintCreate
 from app.security import hash_pin, pin_for_idempotency, verify_pin, hash_password, verify_password
-from app.services import hybrid_duplicate_score, redact_pii
+from app.models import Priority
+from app.services import bounded_resolution_hours, hybrid_duplicate_score, redact_pii
 
 def test_redacts_contact_and_aadhaar_like_values_before_model_processing():
     safe, kinds = redact_pii("Call 9876543210 or me@example.com. ID 1234 5678 9012")
@@ -33,3 +34,9 @@ def test_retry_pin_is_stable_without_storing_plaintext():
     assert pin_for_idempotency(key)==pin_for_idempotency(key)
     assert pin_for_idempotency(key).isdigit()
     assert len(pin_for_idempotency(key))==4
+
+def test_ai_resolution_recommendation_respects_priority_guardrails():
+    assert bounded_resolution_hours(Priority.critical, 120, 72) == 24
+    assert bounded_resolution_hours(Priority.high, 48, 72) == 48
+    assert bounded_resolution_hours(Priority.normal, 240, 72) == 168
+    assert bounded_resolution_hours(Priority.low, None, 72) == 72

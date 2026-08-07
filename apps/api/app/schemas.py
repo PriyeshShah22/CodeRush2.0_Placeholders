@@ -34,6 +34,7 @@ class ComplaintOut(BaseModel):
     location_text: str; ward: str|None; latitude: float|None; longitude: float|None
     ai_state: str; ai_explanation: str|None; pii_detected: list; version: int
     created_at: datetime; updated_at: datetime
+    linked_reports: int = 1
 
 class ComplaintCreated(BaseModel):
     complaint: ComplaintOut
@@ -62,8 +63,7 @@ class AssignRequest(BaseModel):
 class ReviewerDecisionRequest(BaseModel):
     category: str = Field(min_length=2,max_length=80)
     priority: Priority
-    location_text: str = Field(min_length=3,max_length=240)
-    ward: str|None = Field(default=None,max_length=80)
+    resolution_hours: int = Field(ge=1,le=720)
     reason_code: str|None = Field(default=None,max_length=80)
     note: str|None = Field(default=None,max_length=1000)
     expected_version: int

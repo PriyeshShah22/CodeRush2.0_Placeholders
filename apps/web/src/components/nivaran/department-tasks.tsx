@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 type Task = {
   assignment: { id: string; kind: string; status: string; assigned_at: string };
   complaint: Complaint;
+  sla?: { resolution_due_at: string };
 };
 export function DepartmentTasks({ compact = false }: { compact?: boolean }) {
   const [rows, setRows] = useState<Task[]>([]);
@@ -43,7 +44,7 @@ export function DepartmentTasks({ compact = false }: { compact?: boolean }) {
     );
   return (
     <div className="space-y-3">
-      {rows.slice(0, compact ? 4 : 20).map(({ assignment, complaint }) => (
+      {rows.slice(0, compact ? 4 : 20).map(({ assignment, complaint, sla }) => (
         <article
           key={assignment.id}
           className="hover-lift hover-arrow grid items-center gap-4 border bg-card p-5 md:grid-cols-[1.2fr_.6fr_.6fr_auto]"
@@ -55,6 +56,16 @@ export function DepartmentTasks({ compact = false }: { compact?: boolean }) {
               </span>
               <Badge variant="outline" className="capitalize">
                 {assignment.kind}
+              </Badge>
+              <Badge
+                variant={
+                  complaint.priority === "critical"
+                    ? "destructive"
+                    : "secondary"
+                }
+                className="capitalize"
+              >
+                {complaint.priority} priority
               </Badge>
             </div>
             <h3 className="mt-2 font-bold">
@@ -74,9 +85,13 @@ export function DepartmentTasks({ compact = false }: { compact?: boolean }) {
             </b>
           </div>
           <div>
-            <span className="text-xs text-muted-foreground">Assigned</span>
+            <span className="text-xs text-muted-foreground">
+              Resolution deadline
+            </span>
             <b className="mt-1 block text-sm">
-              {new Date(assignment.assigned_at).toLocaleString()}
+              {sla
+                ? new Date(sla.resolution_due_at).toLocaleString()
+                : "Pending review"}
             </b>
           </div>
           <Button asChild variant="outline" size="sm">

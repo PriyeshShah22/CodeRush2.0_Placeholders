@@ -802,10 +802,8 @@ export interface components {
             /** Category */
             category: string;
             priority: components["schemas"]["Priority"];
-            /** Location Text */
-            location_text: string;
-            /** Ward */
-            ward?: string | null;
+            /** Resolution Hours */
+            resolution_hours: number;
             /** Reason Code */
             reason_code?: string | null;
             /** Note */
