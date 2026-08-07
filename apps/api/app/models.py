@@ -66,6 +66,8 @@ class Complaint(Base):
     reporter_identity_id: Mapped[str|None]=mapped_column(ForeignKey("reporter_identities.id"), index=True)
     original_text: Mapped[str]=mapped_column(Text)
     normalized_text: Mapped[str|None]=mapped_column(Text)
+    translation_hi: Mapped[str|None]=mapped_column(Text)
+    translation_mr: Mapped[str|None]=mapped_column(Text)
     safe_text: Mapped[str]=mapped_column(Text)
     title: Mapped[str|None]=mapped_column(String(160))
     language: Mapped[str]=mapped_column(String(16), default="und", index=True)
@@ -264,11 +266,17 @@ class EvaluationRun(Base):
     model_name: Mapped[str]=mapped_column(String(80))
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
 
-class SmsSession(Base):
-    __tablename__="sms_sessions"
+class AssistantSession(Base):
+    __tablename__="assistant_sessions"
     id: Mapped[str]=mapped_column(String(36), primary_key=True, default=uid)
+    user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), index=True)
     messages: Mapped[list]=mapped_column(JSON, default=list)
     state: Mapped[str]=mapped_column(String(32), default="active")
     language: Mapped[str]=mapped_column(String(16), default="auto")
+    complaint_id: Mapped[str|None]=mapped_column(ForeignKey("complaints.id"))
+    context: Mapped[dict]=mapped_column(JSON, default=dict)
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+# Compatibility name for old database imports; the simulator endpoint is disabled.
+SmsSession=AssistantSession

@@ -4,11 +4,11 @@ Nivaran is a local-first, multilingual civic grievance workflow for the syntheti
 
 ## Run locally
 
-1. Copy `.env.example` to `.env`, set a strong `JWT_SECRET`, and provide `OPENAI_API_KEY` if AI triage and voice transcription should run.
+1. Copy `.env.example` to `.env`, set a strong `JWT_SECRET`, and provide `OPENAI_API_KEY` for complaint triage/assistant plus `SARVAM_API_KEY` for Indic voice translation.
 2. Run `docker compose up --build`.
 3. Open `http://localhost:3000` and use the seeded demo accounts shown on the login page.
 
-Without OpenAI credentials, complaints remain persisted and enter an honest manual-review state.
+Without OpenAI credentials, complaints remain persisted and enter an honest manual-review state. Without Sarvam credentials, typed reporting remains available and voice returns a clear unavailable response.
 
 For development without Docker, the API automatically uses `data/nivaran.db` and creates/seeds it on startup:
 
@@ -25,7 +25,7 @@ The stack starts PostgreSQL with pgvector, the FastAPI service, a persistent dat
 
 Use the seeded complaint `NVR-26-104827` with tracking PIN `4827`. The reviewer workspace shows the privacy-safe multilingual report, duplicate cluster, route factors, and human override boundary. Assign Water Supply as primary and Roads & Public Works as supporting, then use the admin escalation screen to run a controlled breach through the same SLA evaluator used by the worker. The resident timeline, notifications, audit log, analytics, and reproducible evaluation view all read persisted workflow data when the API is running.
 
-`/lite` is text-first and excludes the ward map and analytics dependencies. `/sms` persists conversational sessions but does not contact a telecom provider. The ward map uses synthetic aggregate coordinates and OpenStreetMap tiles; it never exposes a reporter’s exact residence.
+`/lite` is text-first and excludes map and analytics dependencies. The SMS simulator has been removed; telecom delivery can be added later through a real adapter. The resident workspace includes manual intake and a session-memory assistant limited to filing complaints. GPS and map selections are reverse-geocoded into readable, editable addresses.
 
 ## Verification
 
@@ -33,9 +33,6 @@ From `apps/api`, run `pytest -q`. From `apps/web`, run `pnpm lint`, `pnpm test`,
 
 ## Demo accounts
 
-- Resident: `resident@nivaran.local` / `DemoResident!42`
-- Reviewer: `reviewer@nivaran.local` / `DemoReviewer!42`
-- Department: `roads@nivaran.local` / `DemoDepartment!42`
-- Admin: `admin@nivaran.local` / `DemoAdmin!42`
+See [DEMO_ACCOUNTS.md](DEMO_ACCOUNTS.md) for every role and department login.
 
 All municipality, ward, department, SLA, complaint, and evaluation records are synthetic.

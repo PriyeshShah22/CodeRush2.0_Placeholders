@@ -20,6 +20,13 @@ ACCOUNTS=[
     ("resident@nivaran.local","Asha Kulkarni","DemoResident!42",Role.resident,None,"mr"),
     ("reviewer@nivaran.local","Kabir Mehta","DemoReviewer!42",Role.reviewer,None,"en"),
     ("roads@nivaran.local","Meera Iyer","DemoDepartment!42",Role.department,"roads","en"),
+    ("water@nivaran.local","Water Desk","DemoDepartment!42",Role.department,"water","en"),
+    ("drainage@nivaran.local","Drainage Desk","DemoDepartment!42",Role.department,"drainage","en"),
+    ("sanitation@nivaran.local","Sanitation Desk","DemoDepartment!42",Role.department,"sanitation","en"),
+    ("electrical@nivaran.local","Electrical Desk","DemoDepartment!42",Role.department,"electrical","en"),
+    ("safety@nivaran.local","Safety Desk","DemoDepartment!42",Role.department,"safety","en"),
+    ("parks@nivaran.local","Parks Desk","DemoDepartment!42",Role.department,"parks","en"),
+    ("access@nivaran.local","Access Desk","DemoDepartment!42",Role.department,"access","en"),
     ("admin@nivaran.local","Farah Khan","DemoAdmin!42",Role.admin,None,"en"),
 ]
 
@@ -57,6 +64,16 @@ def run():
             audit(db,"complaint",c.id,"complaint_created",new={"source":"voice"},source="seed")
             audit(db,"complaint",c.id,"pii_redacted",new={"types":["phone"]},source="seed")
             audit(db,"complaint",c.id,"ai_triage_completed",new={"category":"water","confidence":.91},source="seed")
+        demo=db.scalar(select(Complaint).where(Complaint.reference_number=="NVR-26-104827"))
+        if demo:
+            demo.title="पाण्याची गळती आणि रस्ता खचला"
+            demo.original_text="Ward 7 मध्ये Shanti Chowk जवळ water pipeline फुटली आहे आणि road खचत आहे. School bus ला धोका आहे."
+            demo.safe_text=demo.original_text
+            demo.normalized_text="A water pipeline has burst near Shanti Chowk in Ward 7 and the road is sinking, creating a hazard for the school bus."
+            demo.translation_hi="वार्ड 7 में शांति चौक के पास पानी की पाइपलाइन फट गई है और सड़क धंस रही है, जिससे स्कूल बस को खतरा है।"
+            demo.translation_mr="वॉर्ड 7 मधील शांती चौकाजवळ पाण्याची पाइपलाइन फुटली आहे आणि रस्ता खचत असल्याने स्कूल बसला धोका आहे."
+            demo.location_text="Shanti Chowk, Ward 7, Pune, Maharashtra"
+            demo.pii_detected=[]
         categories=[("roads","roads"),("water","water"),("drainage","drainage"),("sanitation","sanitation"),("streetlight","electrical"),("accessibility","access")]
         if (db.scalar(select(func.count()).select_from(EvaluationItem)) or 0)<300:
             db.query(EvaluationItem).delete()
@@ -71,7 +88,7 @@ def run():
             places=["Shanti Chowk","Azad Market","Maitri School","Lotus Clinic","Nadi Bridge"]
             for i in range(360):
                 category,dept=random.choice(categories); language=random.choice(list(templates)); text=random.choice(templates[language]).format(issue=issue_words[category],place=random.choice(places),ward=random.randint(1,12))
-                db.add(EvaluationItem(complaint_text=text,language=language,source_channel=random.choice(["web","lite","sms","voice"]),expected_category=category,expected_department=dept,expected_priority="high" if i%9==0 else "normal",duplicate_cluster=i%24 if i%4==0 else None))
+                db.add(EvaluationItem(complaint_text=text,language=language,source_channel=random.choice(["web","lite","assistant","voice"]),expected_category=category,expected_department=dept,expected_priority="high" if i%9==0 else "normal",duplicate_cluster=i%24 if i%4==0 else None))
         if not db.scalar(select(EvaluationRun).where(EvaluationRun.name=="Synthetic baseline versus assisted v1")):
             sample_size=360
             baseline_correct=sum(1 for i in range(sample_size) if i%5 in (0,1,2))

@@ -15,7 +15,7 @@ from .db import get_db
 from .models import *
 from .schemas import *
 from .security import *
-from .services import audit, evaluate_sla, redact_pii, reference_number, route_complaint, transcribe_audio
+from .services import assistant_response, audit, evaluate_sla, geocode_search, redact_pii, reference_number, reverse_geocode, route_complaint, transcribe_audio
 
 limiter=Limiter(key_func=get_remote_address)
 
@@ -30,6 +30,8 @@ async def lifespan(app: FastAPI):
             columns={row[1] for row in connection.exec_driver_sql("PRAGMA table_info(complaints)")}
             if "priority_reviewed" not in columns: connection.exec_driver_sql("ALTER TABLE complaints ADD COLUMN priority_reviewed BOOLEAN NOT NULL DEFAULT 0")
             if "routing_approved" not in columns: connection.exec_driver_sql("ALTER TABLE complaints ADD COLUMN routing_approved BOOLEAN NOT NULL DEFAULT 0")
+            if "translation_hi" not in columns: connection.exec_driver_sql("ALTER TABLE complaints ADD COLUMN translation_hi TEXT")
+            if "translation_mr" not in columns: connection.exec_driver_sql("ALTER TABLE complaints ADD COLUMN translation_mr TEXT")
         seed_database()
     yield
 
@@ -86,9 +88,7 @@ def refresh(request: Request,response: Response,db: Session=Depends(get_db)):
     response.set_cookie("nivaran_refresh",create_token(user,"refresh",60*24*7),httponly=True,secure=settings.cookie_secure,samesite="lax",max_age=604800)
     return {"data":UserOut.model_validate(user)}
 
-@app.post("/api/complaints",response_model=dict)
-@limiter.limit("10/hour")
-def create_complaint(request: Request,body: ComplaintCreate,idempotency_key: str=Header(min_length=8),db: Session=Depends(get_db),user: User|None=Depends(optional_current_user)):
+def persist_complaint(db: Session,body: ComplaintCreate,idempotency_key: str,user: User|None):
     existing=db.scalar(select(AuditEvent).where(AuditEvent.action=="complaint_created",AuditEvent.reason==idempotency_key))
     if existing:
         c=db.get(Complaint,existing.entity_id); return {"data":{"complaint":ComplaintOut.model_validate(c),"tracking_pin":pin_for_idempotency(idempotency_key)},"message":"Existing submission returned"}
@@ -102,6 +102,11 @@ def create_complaint(request: Request,body: ComplaintCreate,idempotency_key: str
     audit(db,"complaint",c.id,"complaint_created",new={"source":body.source_channel,"pii_types":pii},reason=idempotency_key)
     db.commit(); db.refresh(c)
     return {"data":{"complaint":ComplaintOut.model_validate(c),"tracking_pin":pin},"message":"Your report is saved and queued for review."}
+
+@app.post("/api/complaints",response_model=dict)
+@limiter.limit("10/hour")
+def create_complaint(request: Request,body: ComplaintCreate,idempotency_key: str=Header(min_length=8),db: Session=Depends(get_db),user: User|None=Depends(optional_current_user)):
+    return persist_complaint(db,body,idempotency_key,user)
 
 @app.post("/api/complaints/track")
 @limiter.limit("20/hour")
@@ -198,6 +203,11 @@ def assign(complaint_id: str,body: AssignRequest,user: User=Depends(require_role
     if not c.priority_reviewed or not c.routing_approved: raise HTTPException(409,"Human review and priority approval are required before assignment")
     if c.status not in {ComplaintStatus.awaiting_review,ComplaintStatus.reopened}: raise HTTPException(422,f"A complaint in {c.status.value} state cannot be assigned")
     if not db.get(Department,body.primary_department_id): raise HTTPException(422,"Unknown primary department")
+    recommended=db.scalar(select(RouteRecommendation).where(RouteRecommendation.complaint_id==c.id).order_by(RouteRecommendation.rank))
+    if recommended and recommended.department_id!=body.primary_department_id:
+        if not body.reason_code: raise HTTPException(422,"A reason is required when overriding the recommended department")
+        db.add(HumanOverride(complaint_id=c.id,field="department",previous_value=recommended.department_id,new_value=body.primary_department_id,reason_code=body.reason_code,note=body.note,actor_id=user.id))
+        audit(db,"complaint",c.id,"department_override",user,old={"department_id":recommended.department_id},new={"department_id":body.primary_department_id},reason=f"{body.reason_code}: {body.note or ''}")
     primary=Assignment(complaint_id=c.id,department_id=body.primary_department_id,kind="primary"); db.add(primary); db.flush()
     supporting=list(dict.fromkeys([department_id for department_id in [body.supporting_department_id,*body.supporting_department_ids] if department_id and department_id!=body.primary_department_id]))
     for department_id in supporting:
@@ -325,8 +335,56 @@ def read_notification(notification_id: str,user: User=Depends(current_user),db: 
     if not item or item.user_id not in {None,user.id}: raise HTTPException(404,"Notification not found")
     item.read=True; db.commit(); return {"message":"Notification marked as read."}
 
-@app.post("/api/sms-simulator/message")
+@app.get("/api/locations/search")
+@limiter.limit("30/minute")
+def search_locations(request: Request,q: str,user: User=Depends(require_roles(Role.resident,Role.reviewer)),db: Session=Depends(get_db)):
+    if len(q.strip())<3: return {"data":[]}
+    try: return {"data":geocode_search(q.strip())}
+    except Exception: raise HTTPException(503,"Address search is temporarily unavailable")
+
+@app.get("/api/locations/reverse")
+@limiter.limit("30/minute")
+def location_reverse(request: Request,latitude: float,longitude: float,user: User=Depends(require_roles(Role.resident,Role.reviewer)),db: Session=Depends(get_db)):
+    if not -90<=latitude<=90 or not -180<=longitude<=180: raise HTTPException(422,"Invalid coordinates")
+    try: return {"data":reverse_geocode(latitude,longitude)}
+    except Exception: raise HTTPException(503,"Address lookup is temporarily unavailable")
+
+@app.post("/api/assistant/messages")
+@limiter.limit("30/minute")
+def assistant_message(request: Request,body: AssistantMessage,user: User=Depends(require_roles(Role.resident)),db: Session=Depends(get_db)):
+    session=db.get(AssistantSession,body.session_id) if body.session_id else None
+    if session and session.user_id!=user.id: raise HTTPException(404,"Assistant session not found")
+    if not session:
+        session=AssistantSession(user_id=user.id,language=body.language,messages=[],context={}); db.add(session); db.flush()
+    if session.state=="filed": raise HTTPException(409,"This session has already filed a complaint. Start a new conversation for another issue.")
+    safe_message,_=redact_pii(body.message.strip())
+    context=dict(session.context or {})
+    if body.location_text: context.update({"location_text":body.location_text,"latitude":body.latitude,"longitude":body.longitude})
+    session.context=context
+    session.messages=[*session.messages,{"from":"resident","text":safe_message,"at":datetime.now(timezone.utc).isoformat()}]
+    try: reply,tool=assistant_response(session.messages,body.language,context)
+    except Exception: raise HTTPException(503,"The complaint assistant is temporarily unavailable. Your conversation is saved; try again shortly.")
+    complaint=None
+    if tool:
+        location=tool.get("location_text") or context.get("location_text")
+        if not location: raise HTTPException(422,"A verifiable location is required before filing")
+        payload=ComplaintCreate(description=tool["description"],title=tool.get("title"),location_text=location,language=tool.get("language") or body.language,source_channel="assistant",latitude=context.get("latitude"),longitude=context.get("longitude"),voice_processing_consent=False)
+        created=persist_complaint(db,payload,f"assistant:{session.id}",user)
+        complaint=created["data"]["complaint"]
+        session.state="filed"; session.complaint_id=complaint.id
+        labels={"en":f"Filed successfully as {complaint.reference_number}. A reviewer must approve the AI recommendation before it is assigned.","hi":f"शिकायत {complaint.reference_number} के रूप में दर्ज हो गई। विभाग को भेजने से पहले समीक्षक AI सुझाव की जाँच करेगा।","mr":f"तक्रार {complaint.reference_number} म्हणून नोंदवली. विभागाकडे पाठवण्यापूर्वी तपासक AI सूचनेची पडताळणी करेल."}
+        reply=labels.get(body.language,labels["en"])
+    session.messages=[*session.messages,{"from":"assistant","text":reply,"at":datetime.now(timezone.utc).isoformat()}]
+    db.commit()
+    return {"data":AssistantSessionOut(session_id=session.id,reply=reply,state=session.state,complaint=complaint)}
+
+@app.get("/api/reviewer/departments")
+def reviewer_departments(user: User=Depends(require_roles(Role.reviewer,Role.admin)),db: Session=Depends(get_db)):
+    return {"data":db.scalars(select(Department).where(Department.active.is_(True)).order_by(Department.name)).all()}
+
+@app.post("/api/sms-simulator/message",include_in_schema=False)
 def sms(body: SmsMessage,user: User=Depends(require_roles(Role.resident)),db: Session=Depends(get_db)):
+    raise HTTPException(410,"The SMS simulator has been removed. Telecom delivery will be configured separately.")
     session=db.get(SmsSession,body.session_id) if body.session_id else None
     if not session: session=SmsSession(language=body.language); db.add(session); db.flush()
     text=body.message.strip()
@@ -387,13 +445,13 @@ async def transcribe_preview(request: Request,file: UploadFile=File(...),voice_c
     if len(content)>25*1024*1024: raise HTTPException(413,"Audio exceeds 25 MB")
     suffix={"audio/webm":".webm","audio/mpeg":".mp3","audio/wav":".wav","audio/mp4":".m4a"}[file.content_type]
     path=Path(settings.upload_dir)/f"voice-preview-{user.id}-{secrets.token_hex(8)}{suffix}"; path.write_bytes(content)
-    try: transcript=transcribe_audio(str(path))
+    try: voice_result=transcribe_audio(str(path)); transcript=voice_result["text"]
     except Exception: raise HTTPException(503,"Voice transcription is unavailable; type the complaint or try again")
     finally:
         path.unlink(missing_ok=True)
     safe,pii=redact_pii(transcript)
-    audit(db,"user",user.id,"voice_preview_transcribed",user,new={"pii_types":pii,"model":settings.openai_transcription_model}); db.commit()
-    return {"data":{"transcript":transcript,"safe_text":safe,"pii_detected":pii},"message":"Transcript is ready for your confirmation."}
+    audit(db,"user",user.id,"voice_preview_transcribed",user,new={"pii_types":pii,"provider":"sarvam","model":"saaras:v3"}); db.commit()
+    return {"data":{"transcript":transcript,"safe_text":safe,"pii_detected":pii,"language":voice_result["language"]},"message":"Voice translated and ready for the complaint assistant."}
 
 @app.post("/api/complaints/{complaint_id}/voice-transcribe")
 async def voice_transcribe(complaint_id: str,file: UploadFile=File(...),tracking_pin: str|None=Header(default=None,alias="X-Tracking-PIN"),user: User|None=Depends(optional_current_user),db: Session=Depends(get_db)):
@@ -410,7 +468,7 @@ async def voice_transcribe(complaint_id: str,file: UploadFile=File(...),tracking
     suffix={"audio/webm":".webm","audio/mpeg":".mp3","audio/wav":".wav","audio/mp4":".m4a"}[file.content_type]
     name=f"{complaint_id}-voice-{secrets.token_hex(8)}{suffix}"; path=Path(settings.upload_dir)/name; path.write_bytes(content)
     db.add(ComplaintEvidence(complaint_id=c.id,evidence_type="audio",storage_reference=name,mime_type=file.content_type,size_bytes=len(content),provenance={"actor_id":user.id if user else None,"channel":"voice"},retention_until=datetime.now(timezone.utc)+timedelta(days=90)))
-    try: transcript=transcribe_audio(str(path))
+    try: voice_result=transcribe_audio(str(path)); transcript=voice_result["text"]
     except Exception:
         c.ai_state="unavailable"; c.status=ComplaintStatus.awaiting_review
         audit(db,"complaint",c.id,"voice_transcription_unavailable",user,new={"storage_reference":name},source="api")
@@ -420,5 +478,5 @@ async def voice_transcribe(complaint_id: str,file: UploadFile=File(...),tracking
     job=db.scalar(select(ProcessingJob).where(ProcessingJob.complaint_id==c.id,ProcessingJob.kind=="triage"))
     if job: job.status=JobStatus.pending; job.error=None
     else: db.add(ProcessingJob(complaint_id=c.id))
-    audit(db,"complaint",c.id,"voice_transcribed",user,new={"model":settings.openai_transcription_model,"pii_types":pii}); db.commit()
+    audit(db,"complaint",c.id,"voice_transcribed",user,new={"provider":"sarvam","model":"saaras:v3","pii_types":pii}); db.commit()
     return {"data":{"transcript":transcript,"safe_text":safe},"message":"Voice transcript saved and queued for structured triage."}

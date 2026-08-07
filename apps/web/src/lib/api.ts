@@ -17,7 +17,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export type Complaint = {
-  id: string; reference_number: string; title?: string; original_text: string; safe_text: string; normalized_text?: string;
+  id: string; reference_number: string; title?: string; original_text: string; safe_text: string; normalized_text?: string; translation_hi?: string; translation_mr?: string;
   language: string; source_channel: string; status: string; category?: string; category_confidence?: number;
   priority: string; priority_confidence?: number; location_text: string; ward?: string; ai_state: string;
   priority_reviewed: boolean; routing_approved: boolean;

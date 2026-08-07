@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     openai_text_model: str = "gpt-5.4-nano"
     openai_transcription_model: str = "gpt-4o-mini-transcribe"
     openai_embedding_model: str = "text-embedding-3-small"
+    sarvam_api_key: str | None = None
+    sarvam_base_url: str = "https://api.sarvam.ai"
+    geocoder_base_url: str = "https://nominatim.openstreetmap.org"
     web_origin: str = "http://localhost:3000"
     upload_dir: str = "../../data/uploads"
     cookie_secure: bool = False

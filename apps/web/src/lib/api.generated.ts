@@ -209,6 +209,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviewer/complaints/{complaint_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reviewer Decision */
+        post: operations["reviewer_decision_api_reviewer_complaints__complaint_id__decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reviewer/complaints/{complaint_id}/assign": {
         parameters: {
             query?: never;
@@ -483,7 +500,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/sms-simulator/message": {
+    "/api/locations/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search Locations */
+        get: operations["search_locations_api_locations_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/reverse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Location Reverse */
+        get: operations["location_reverse_api_locations_reverse_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/assistant/messages": {
         parameters: {
             query?: never;
             header?: never;
@@ -492,8 +543,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Sms */
-        post: operations["sms_api_sms_simulator_message_post"];
+        /** Assistant Message */
+        post: operations["assistant_message_api_assistant_messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reviewer/departments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Reviewer Departments */
+        get: operations["reviewer_departments_api_reviewer_departments_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -528,6 +596,23 @@ export interface paths {
         get: operations["download_evidence_api_evidence__storage_reference__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/voice/transcribe-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Transcribe Preview */
+        post: operations["transcribe_preview_api_voice_transcribe_preview_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -571,8 +656,40 @@ export interface components {
             primary_department_id: string;
             /** Supporting Department Id */
             supporting_department_id?: string | null;
+            /** Supporting Department Ids */
+            supporting_department_ids?: string[];
+            /** Reason Code */
+            reason_code?: string | null;
+            /** Note */
+            note?: string | null;
             /** Expected Version */
             expected_version: number;
+        };
+        /** AssistantMessage */
+        AssistantMessage: {
+            /** Session Id */
+            session_id?: string | null;
+            /** Message */
+            message: string;
+            /**
+             * Language
+             * @default auto
+             */
+            language: string;
+            /** Location Text */
+            location_text?: string | null;
+            /** Latitude */
+            latitude?: number | null;
+            /** Longitude */
+            longitude?: number | null;
+        };
+        /** Body_transcribe_preview_api_voice_transcribe_preview_post */
+        Body_transcribe_preview_api_voice_transcribe_preview_post: {
+            /**
+             * File
+             * Format: binary
+             */
+            file: string;
         };
         /** Body_upload_evidence_api_complaints__complaint_id__evidence_post */
         Body_upload_evidence_api_complaints__complaint_id__evidence_post: {
@@ -608,11 +725,6 @@ export interface components {
              * @default web
              */
             source_channel: string;
-            /**
-             * Urgency
-             * @default normal
-             */
-            urgency: string;
             /** Ward */
             ward?: string | null;
             /** Latitude */
@@ -680,6 +792,27 @@ export interface components {
             /** Expected Version */
             expected_version: number;
         };
+        /**
+         * Priority
+         * @enum {string}
+         */
+        Priority: "low" | "normal" | "high" | "critical";
+        /** ReviewerDecisionRequest */
+        ReviewerDecisionRequest: {
+            /** Category */
+            category: string;
+            priority: components["schemas"]["Priority"];
+            /** Location Text */
+            location_text: string;
+            /** Ward */
+            ward?: string | null;
+            /** Reason Code */
+            reason_code?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Expected Version */
+            expected_version: number;
+        };
         /** ServiceRuleUpsert */
         ServiceRuleUpsert: {
             /** Category */
@@ -704,18 +837,6 @@ export interface components {
              * @default 2026.1
              */
             version: string;
-        };
-        /** SmsMessage */
-        SmsMessage: {
-            /** Session Id */
-            session_id?: string | null;
-            /** Message */
-            message: string;
-            /**
-             * Language
-             * @default auto
-             */
-            language: string;
         };
         /** StatusRequest */
         StatusRequest: {
@@ -1084,6 +1205,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["OverrideRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reviewer_decision_api_reviewer_complaints__complaint_id__decision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                complaint_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewerDecisionRequest"];
             };
         };
         responses: {
@@ -1586,7 +1742,70 @@ export interface operations {
             };
         };
     };
-    sms_api_sms_simulator_message_post: {
+    search_locations_api_locations_search_get: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    location_reverse_api_locations_reverse_get: {
+        parameters: {
+            query: {
+                latitude: number;
+                longitude: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assistant_message_api_assistant_messages_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1595,7 +1814,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SmsMessage"];
+                "application/json": components["schemas"]["AssistantMessage"];
             };
         };
         responses: {
@@ -1615,6 +1834,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reviewer_departments_api_reviewer_departments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };
@@ -1664,6 +1903,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transcribe_preview_api_voice_transcribe_preview_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Voice-Consent": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_transcribe_preview_api_voice_transcribe_preview_post"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

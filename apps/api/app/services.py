@@ -2,6 +2,7 @@ import json
 import math
 import re
 import secrets
+import httpx
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -66,12 +67,84 @@ def openai_triage(complaint: Complaint) -> TriageOutput:
     if not response.output_parsed: raise RuntimeError("No structured triage returned")
     return response.output_parsed
 
-def transcribe_audio(path: str) -> str:
-    if not settings.openai_api_key: raise RuntimeError("OpenAI transcription is not configured")
-    client=OpenAI(api_key=settings.openai_api_key)
+def transcribe_audio(path: str) -> dict:
+    """Translate short Indic-language speech to English with Sarvam Saaras v3."""
+    if not settings.sarvam_api_key: raise RuntimeError("Sarvam voice translation is not configured")
     with open(path,"rb") as audio:
-        result=client.audio.transcriptions.create(model=settings.openai_transcription_model,file=audio,prompt="Civic complaint in English, Hindi, Marathi, or code-switched speech. Preserve place names and uncertainty.")
-    return result.text
+        response=httpx.post(
+            f"{settings.sarvam_base_url}/speech-to-text",
+            headers={"api-subscription-key":settings.sarvam_api_key},
+            files={"file":("resident-voice.webm",audio,"audio/webm")},
+            data={"model":"saaras:v3","mode":"translate"},
+            timeout=45,
+        )
+    response.raise_for_status()
+    payload=response.json()
+    return {"text":payload.get("transcript","").strip(),"language":payload.get("language_code") or "auto"}
+
+def translate_text(text: str, target: str) -> str:
+    if target=="en" or not text: return text
+    if not settings.sarvam_api_key: return text
+    language={"hi":"hi-IN","mr":"mr-IN"}.get(target)
+    if not language: return text
+    try:
+        response=httpx.post(
+            f"{settings.sarvam_base_url}/translate",
+            headers={"api-subscription-key":settings.sarvam_api_key,"Content-Type":"application/json"},
+            json={"input":text[:2000],"source_language_code":"en-IN","target_language_code":language},
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json().get("translated_text",text)
+    except Exception:
+        return text
+
+def geocode_search(query: str) -> list[dict]:
+    response=httpx.get(
+        f"{settings.geocoder_base_url}/search",
+        params={"q":query,"format":"jsonv2","limit":5,"countrycodes":"in","addressdetails":1},
+        headers={"User-Agent":"Nivaran local civic prototype/1.0"},timeout=15,
+    )
+    response.raise_for_status()
+    return [{"display_name":row["display_name"],"latitude":float(row["lat"]),"longitude":float(row["lon"])} for row in response.json()]
+
+def reverse_geocode(latitude: float, longitude: float) -> dict:
+    response=httpx.get(
+        f"{settings.geocoder_base_url}/reverse",
+        params={"lat":latitude,"lon":longitude,"format":"jsonv2","zoom":18},
+        headers={"User-Agent":"Nivaran local civic prototype/1.0"},timeout=15,
+    )
+    response.raise_for_status()
+    payload=response.json()
+    return {"display_name":payload.get("display_name") or f"{latitude:.5f}, {longitude:.5f}","latitude":latitude,"longitude":longitude}
+
+def assistant_response(messages: list[dict], language: str, location_context: dict|None=None) -> tuple[str,dict|None]:
+    """Return a concise reply and, only after explicit confirmation, a file_complaint tool call."""
+    if not settings.openai_api_key: raise RuntimeError("OpenAI complaint assistant is not configured")
+    safe_messages=[]
+    for message in messages[-24:]:
+        safe,_=redact_pii(str(message.get("text","")))
+        safe_messages.append({"role":"assistant" if message.get("from")=="assistant" else "user","content":safe})
+    location_note=json.dumps(location_context or {},ensure_ascii=False)
+    instructions=(
+        "You are Nivaran's complaint filing assistant. Your only capability is gathering enough information "
+        "to file one civic complaint. Ask one short relevant question at a time. You need: a clear issue, a "
+        "human-verifiable address or landmark, and explicit confirmation to submit. Never handle status, advice, "
+        "emergencies, or unrelated requests. Reply in the user's selected language (en, hi, or mr). Do not invent "
+        f"facts, locations, wards, departments, or urgency. The selected interface language is {language}. Once the user explicitly confirms the complete summary, "
+        "call file_complaint. Location context supplied by the trusted UI is: "+location_note
+    )
+    response=OpenAI(api_key=settings.openai_api_key).responses.create(
+        model=settings.openai_text_model,
+        reasoning={"effort":"low"},
+        instructions=instructions,
+        input=safe_messages,
+        tools=[{"type":"function","name":"file_complaint","description":"File the resident's complaint after they explicitly confirm the final summary.","strict":True,"parameters":{"type":"object","properties":{"title":{"type":"string"},"description":{"type":"string"},"location_text":{"type":"string"},"language":{"type":"string","enum":["en","hi","mr","auto"]}},"required":["title","description","location_text","language"],"additionalProperties":False}}],
+    )
+    for item in response.output:
+        if getattr(item,"type",None)=="function_call" and getattr(item,"name",None)=="file_complaint":
+            return "",json.loads(item.arguments)
+    return (response.output_text or "Please tell me what happened and where it is."),None
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
     if not settings.openai_api_key: raise RuntimeError("OpenAI embeddings are not configured")
@@ -164,6 +237,8 @@ def process_complaint(db: Session, job: ProcessingJob):
     try:
         triage=openai_triage(complaint)
         complaint.normalized_text=triage.normalized_translation
+        complaint.translation_hi=translate_text(triage.normalized_translation,"hi")
+        complaint.translation_mr=translate_text(triage.normalized_translation,"mr")
         complaint.language=triage.language
         complaint.category=triage.category if triage.category in CATEGORIES else "other"
         complaint.category_confidence=max(0,min(1,triage.category_confidence))

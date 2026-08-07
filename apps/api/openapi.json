@@ -414,6 +414,53 @@
         }
       }
     },
+    "/api/reviewer/complaints/{complaint_id}/decision": {
+      "post": {
+        "summary": "Reviewer Decision",
+        "operationId": "reviewer_decision_api_reviewer_complaints__complaint_id__decision_post",
+        "parameters": [
+          {
+            "name": "complaint_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Complaint Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewerDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/reviewer/complaints/{complaint_id}/assign": {
       "post": {
         "summary": "Assign",
@@ -925,15 +972,98 @@
         }
       }
     },
-    "/api/sms-simulator/message": {
+    "/api/locations/search": {
+      "get": {
+        "summary": "Search Locations",
+        "operationId": "search_locations_api_locations_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/locations/reverse": {
+      "get": {
+        "summary": "Location Reverse",
+        "operationId": "location_reverse_api_locations_reverse_get",
+        "parameters": [
+          {
+            "name": "latitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "title": "Latitude"
+            }
+          },
+          {
+            "name": "longitude",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "title": "Longitude"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/assistant/messages": {
       "post": {
-        "summary": "Sms",
-        "operationId": "sms_api_sms_simulator_message_post",
+        "summary": "Assistant Message",
+        "operationId": "assistant_message_api_assistant_messages_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SmsMessage"
+                "$ref": "#/components/schemas/AssistantMessage"
               }
             }
           },
@@ -955,6 +1085,22 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reviewer/departments": {
+      "get": {
+        "summary": "Reviewer Departments",
+        "operationId": "reviewer_departments_api_reviewer_departments_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
@@ -1023,6 +1169,53 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/voice/transcribe-preview": {
+      "post": {
+        "summary": "Transcribe Preview",
+        "operationId": "transcribe_preview_api_voice_transcribe_preview_post",
+        "parameters": [
+          {
+            "name": "X-Voice-Consent",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Voice-Consent"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_transcribe_preview_api_voice_transcribe_preview_post"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1148,6 +1341,38 @@
             ],
             "title": "Supporting Department Id"
           },
+          "supporting_department_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 6,
+            "title": "Supporting Department Ids"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
           "expected_version": {
             "type": "integer",
             "title": "Expected Version"
@@ -1159,6 +1384,89 @@
           "expected_version"
         ],
         "title": "AssignRequest"
+      },
+      "AssistantMessage": {
+        "properties": {
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Message"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language",
+            "default": "auto"
+          },
+          "location_text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 240
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Text"
+          },
+          "latitude": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 90.0,
+                "minimum": -90.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latitude"
+          },
+          "longitude": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 180.0,
+                "minimum": -180.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Longitude"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "AssistantMessage"
+      },
+      "Body_transcribe_preview_api_voice_transcribe_preview_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_transcribe_preview_api_voice_transcribe_preview_post"
       },
       "Body_upload_evidence_api_complaints__complaint_id__evidence_post": {
         "properties": {
@@ -1224,11 +1532,6 @@
             "title": "Source Channel",
             "default": "web"
           },
-          "urgency": {
-            "type": "string",
-            "title": "Urgency",
-            "default": "normal"
-          },
           "ward": {
             "anyOf": [
               {
@@ -1243,7 +1546,9 @@
           "latitude": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 90.0,
+                "minimum": -90.0
               },
               {
                 "type": "null"
@@ -1254,7 +1559,9 @@
           "longitude": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 180.0,
+                "minimum": -180.0
               },
               {
                 "type": "null"
@@ -1426,6 +1733,83 @@
         ],
         "title": "OverrideRequest"
       },
+      "Priority": {
+        "type": "string",
+        "enum": [
+          "low",
+          "normal",
+          "high",
+          "critical"
+        ],
+        "title": "Priority"
+      },
+      "ReviewerDecisionRequest": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Category"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority"
+          },
+          "location_text": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 3,
+            "title": "Location Text"
+          },
+          "ward": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ward"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "expected_version": {
+            "type": "integer",
+            "title": "Expected Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "priority",
+          "location_text",
+          "expected_version"
+        ],
+        "title": "ReviewerDecisionRequest"
+      },
       "ServiceRuleUpsert": {
         "properties": {
           "category": {
@@ -1476,37 +1860,6 @@
           "resolution_hours"
         ],
         "title": "ServiceRuleUpsert"
-      },
-      "SmsMessage": {
-        "properties": {
-          "session_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Session Id"
-          },
-          "message": {
-            "type": "string",
-            "maxLength": 1000,
-            "minLength": 1,
-            "title": "Message"
-          },
-          "language": {
-            "type": "string",
-            "title": "Language",
-            "default": "auto"
-          }
-        },
-        "type": "object",
-        "required": [
-          "message"
-        ],
-        "title": "SmsMessage"
       },
       "StatusRequest": {
         "properties": {
