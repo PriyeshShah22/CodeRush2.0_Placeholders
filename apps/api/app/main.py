@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import secrets
+import jwt
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -455,12 +456,12 @@ async def upload_evidence(complaint_id: str,file: UploadFile=File(...),user: Use
     if user.role==Role.department:
         assigned=db.scalar(select(Assignment).where(Assignment.complaint_id==c.id,Assignment.department_id==user.department_id))
         if not assigned: raise HTTPException(403,"Complaint is outside your assigned work")
-    allowed={"image/jpeg","image/png","image/webp","audio/webm","audio/mpeg","video/mp4","video/webm"}
-    if file.content_type not in allowed: raise HTTPException(415,"Unsupported evidence type")
+    allowed={"image/jpeg","image/png","image/webp","audio/webm","audio/mpeg","audio/mp4","audio/wav","audio/ogg","audio/x-m4a","audio/aac","video/mp4","video/webm"}
+    if file.content_type.split(";")[0] not in allowed: raise HTTPException(415,"Unsupported evidence type")
     limit=25*1024*1024 if file.content_type.startswith("video/") else 8*1024*1024
     content=await file.read(limit+1)
     if len(content)>limit: raise HTTPException(413,f"Evidence exceeds {limit//1024//1024} MB")
-    suffix={"image/jpeg":".jpg","image/png":".png","image/webp":".webp","audio/webm":".webm","audio/mpeg":".mp3","video/mp4":".mp4","video/webm":".webm"}[file.content_type]
+    suffix={"image/jpeg":".jpg","image/png":".png","image/webp":".webp","audio/webm":".webm","audio/mpeg":".mp3","audio/mp4":".m4a","audio/wav":".wav","audio/ogg":".ogg","audio/x-m4a":".m4a","audio/aac":".aac","video/mp4":".mp4","video/webm":".webm"}[file.content_type.split(";")[0]]
     name=f"{complaint_id}-{secrets.token_hex(8)}{suffix}"; path=Path(settings.upload_dir)/name; path.write_bytes(content)
     evidence_type="video" if file.content_type.startswith("video/") else "audio" if file.content_type.startswith("audio/") else "image"
     db.add(ComplaintEvidence(complaint_id=c.id,evidence_type=evidence_type,storage_reference=name,mime_type=file.content_type,size_bytes=len(content),provenance={"actor_id":user.id,"channel":"web"},retention_until=datetime.now(timezone.utc)+timedelta(days=90)))
@@ -486,10 +487,10 @@ def download_evidence(storage_reference: str,user: User=Depends(current_user),db
 @limiter.limit("12/hour")
 async def transcribe_preview(request: Request,file: UploadFile=File(...),voice_consent: str=Header(alias="X-Voice-Consent"),user: User=Depends(require_roles(Role.resident)),db: Session=Depends(get_db)):
     if voice_consent.lower()!="true": raise HTTPException(403,"Explicit voice processing consent is required")
-    if file.content_type not in {"audio/webm","audio/mpeg","audio/wav","audio/mp4"}: raise HTTPException(415,"Unsupported audio type")
+    if file.content_type.split(";")[0] not in {"audio/webm","audio/mpeg","audio/wav","audio/mp4","audio/ogg","audio/x-m4a","audio/aac","video/webm"}: raise HTTPException(415,"Unsupported audio type")
     content=await file.read(25*1024*1024+1)
     if len(content)>25*1024*1024: raise HTTPException(413,"Audio exceeds 25 MB")
-    suffix={"audio/webm":".webm","audio/mpeg":".mp3","audio/wav":".wav","audio/mp4":".m4a"}[file.content_type]
+    suffix={"audio/webm":".webm","audio/mpeg":".mp3","audio/wav":".wav","audio/mp4":".m4a","audio/ogg":".ogg","audio/x-m4a":".m4a","audio/aac":".aac","video/webm":".webm"}[file.content_type.split(";")[0]]
     path=Path(settings.upload_dir)/f"voice-preview-{user.id}-{secrets.token_hex(8)}{suffix}"; path.write_bytes(content)
     try: voice_result=transcribe_audio(str(path)); transcript=voice_result["text"]
     except Exception: raise HTTPException(503,"Voice transcription is unavailable; type the complaint or try again")
@@ -508,10 +509,10 @@ async def voice_transcribe(complaint_id: str,file: UploadFile=File(...),tracking
     if not owns_report and (not tracking_pin or not verify_pin(tracking_pin,c.tracking_pin_hash)): raise HTTPException(403,"A valid tracking PIN is required")
     consent=db.scalar(select(ConsentRecord).where(ConsentRecord.complaint_id==c.id,ConsentRecord.consent_type=="voice_processing",ConsentRecord.granted.is_(True)))
     if not consent: raise HTTPException(403,"Voice processing consent is required")
-    if file.content_type not in {"audio/webm","audio/mpeg","audio/wav","audio/mp4"}: raise HTTPException(415,"Unsupported audio type")
+    if file.content_type.split(";")[0] not in {"audio/webm","audio/mpeg","audio/wav","audio/mp4","audio/ogg","audio/x-m4a","audio/aac","video/webm"}: raise HTTPException(415,"Unsupported audio type")
     content=await file.read(25*1024*1024+1)
     if len(content)>25*1024*1024: raise HTTPException(413,"Audio exceeds 25 MB")
-    suffix={"audio/webm":".webm","audio/mpeg":".mp3","audio/wav":".wav","audio/mp4":".m4a"}[file.content_type]
+    suffix={"audio/webm":".webm","audio/mpeg":".mp3","audio/wav":".wav","audio/mp4":".m4a","audio/ogg":".ogg","audio/x-m4a":".m4a","audio/aac":".aac","video/webm":".webm"}[file.content_type.split(";")[0]]
     name=f"{complaint_id}-voice-{secrets.token_hex(8)}{suffix}"; path=Path(settings.upload_dir)/name; path.write_bytes(content)
     db.add(ComplaintEvidence(complaint_id=c.id,evidence_type="audio",storage_reference=name,mime_type=file.content_type,size_bytes=len(content),provenance={"actor_id":user.id if user else None,"channel":"voice"},retention_until=datetime.now(timezone.utc)+timedelta(days=90)))
     try: voice_result=transcribe_audio(str(path)); transcript=voice_result["text"]
