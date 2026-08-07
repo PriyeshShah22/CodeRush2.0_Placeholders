@@ -74,6 +74,45 @@ def run():
             demo.translation_mr="वॉर्ड 7 मधील शांती चौकाजवळ पाण्याची पाइपलाइन फुटली आहे आणि रस्ता खचत असल्याने स्कूल बसला धोका आहे."
             demo.location_text="Shanti Chowk, Ward 7, Pune, Maharashtra"
             demo.pii_detected=[]
+        demo_cases=[
+            {
+                "reference":"NVR-26-210431","title":"Garbage blocking the footpath","text":"Garbage has not been collected beside Maitri Market for three days and people are walking on the road.","hi":"मैत्री मार्केट के पास तीन दिन से कचरा नहीं उठाया गया है और लोगों को सड़क पर चलना पड़ रहा है।","mr":"मैत्री मार्केटजवळ तीन दिवसांपासून कचरा उचललेला नाही आणि लोकांना रस्त्यावरून चालावे लागत आहे.","category":"sanitation","department":"sanitation","priority":Priority.high,"status":ComplaintStatus.awaiting_review,"location":"Maitri Market, Ward 4, Pune, Maharashtra","ward":"Ward 4","lat":18.5158,"lon":73.8421,"hours":2,"assignment":None,
+            },
+            {
+                "reference":"NVR-26-210432","title":"Deep pothole on the school approach","text":"A deep pothole near Samanvay School is forcing buses into the opposite lane.","hi":"समन्वय स्कूल के पास गहरा गड्ढा बसों को विपरीत लेन में जाने के लिए मजबूर कर रहा है।","mr":"समन्वय शाळेजवळील खोल खड्ड्यामुळे बसना विरुद्ध लेनमध्ये जावे लागत आहे.","category":"roads","department":"roads","priority":Priority.high,"status":ComplaintStatus.assigned,"location":"Samanvay School Road, Ward 12, Pune, Maharashtra","ward":"Ward 12","lat":18.5312,"lon":73.8514,"hours":7,"assignment":"assigned",
+            },
+            {
+                "reference":"NVR-26-210433","title":"Low water pressure across the lane","text":"Homes along Lotus Clinic Lane have had very low water pressure since yesterday morning.","hi":"लोटस क्लिनिक लेन के घरों में कल सुबह से पानी का दबाव बहुत कम है।","mr":"लोटस क्लिनिक लेनमधील घरांमध्ये काल सकाळपासून पाण्याचा दाब खूप कमी आहे.","category":"water","department":"water","priority":Priority.normal,"status":ComplaintStatus.in_progress,"location":"Lotus Clinic Lane, Ward 9, Pune, Maharashtra","ward":"Ward 9","lat":18.5076,"lon":73.8732,"hours":18,"assignment":"in_progress",
+            },
+            {
+                "reference":"NVR-26-210434","title":"Blocked drain beside the bus stop","text":"The blocked drain beside Azad Market bus stop was overflowing after light rain.","hi":"आजाद मार्केट बस स्टॉप के पास बंद नाली हल्की बारिश के बाद भर गई थी।","mr":"आझाद मार्केट बसथांब्याजवळील बंद नाला हलक्या पावसानंतर भरून वाहत होता.","category":"drainage","department":"drainage","priority":Priority.normal,"status":ComplaintStatus.resolved,"location":"Azad Market Bus Stop, Ward 6, Pune, Maharashtra","ward":"Ward 6","lat":18.5246,"lon":73.8655,"hours":54,"assignment":"resolved",
+            },
+        ]
+        for item in demo_cases:
+            if db.scalar(select(Complaint).where(Complaint.reference_number==item["reference"])):
+                continue
+            created=datetime.now(timezone.utc)-timedelta(hours=item["hours"])
+            approved=item["status"]!=ComplaintStatus.awaiting_review
+            complaint=Complaint(
+                reference_number=item["reference"],tracking_pin_hash=hash_pin(item["reference"][-4:]),reporter_identity_id=resident_identity.id,
+                title=item["title"],original_text=item["text"],safe_text=item["text"],normalized_text=item["text"],translation_hi=item["hi"],translation_mr=item["mr"],
+                language="en",source_channel="web",status=item["status"],category=item["category"],category_confidence=.9,priority=item["priority"],priority_confidence=.86,
+                priority_reviewed=approved,routing_approved=approved,location_text=item["location"],ward=item["ward"],latitude=item["lat"],longitude=item["lon"],
+                ai_state="completed",ai_explanation="Suggested from the reported service type, location, and stated public impact. Human approval controls assignment.",pii_detected=[],created_at=created,
+            )
+            db.add(complaint); db.flush()
+            department=departments[item["department"]]
+            db.add(ComplaintAnalysis(complaint_id=complaint.id,entities={"landmark":item["location"].split(",")[0]},clarification_questions=[],route_factors={"service_match":1,"jurisdiction":1},model_name="gpt-5.4-nano"))
+            db.add(RouteRecommendation(complaint_id=complaint.id,department_id=department.id,score=.9,confidence=.87,factors={"service_fit":1,"jurisdiction_fit":1,"sla_feasibility":.85},service_rule_version="2026.1",rank=1))
+            db.add(SLARecord(complaint_id=complaint.id,acknowledgement_due_at=created+timedelta(hours=8),resolution_due_at=created+timedelta(hours=72),risk_score=.2 if item["status"]==ComplaintStatus.resolved else .46))
+            if item["assignment"]:
+                acknowledged=created+timedelta(hours=1) if item["assignment"] in ("in_progress","resolved") else None
+                resolved=created+timedelta(hours=41) if item["assignment"]=="resolved" else None
+                db.add(Assignment(complaint_id=complaint.id,department_id=department.id,kind="primary",status=item["assignment"],assigned_at=created+timedelta(minutes=30),acknowledged_at=acknowledged,resolved_at=resolved))
+            audit(db,"complaint",complaint.id,"complaint_created",new={"source":"web"},source="seed")
+            audit(db,"complaint",complaint.id,"ai_triage_completed",new={"category":item["category"],"priority":item["priority"].value},source="seed")
+            if approved:
+                audit(db,"complaint",complaint.id,"review_approved",new={"department":item["department"],"priority":item["priority"].value},source="seed")
         categories=[("roads","roads"),("water","water"),("drainage","drainage"),("sanitation","sanitation"),("streetlight","electrical"),("accessibility","access")]
         if (db.scalar(select(func.count()).select_from(EvaluationItem)) or 0)<300:
             db.query(EvaluationItem).delete()
