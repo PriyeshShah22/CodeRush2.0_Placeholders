@@ -1,0 +1,13 @@
+.env
+.env.local
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.venv/
+node_modules/
+.next/
+*.log
+data/uploads/*
+!data/uploads/.gitkeep
+data/*.db
+data/web-git-backup-*/
