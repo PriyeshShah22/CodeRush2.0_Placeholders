@@ -1,0 +1,5 @@
+"use client";
+import { useState } from "react";import { toast } from "sonner";import { Button } from "@/components/ui/button";import { Switch } from "@/components/ui/switch";
+const items=[{t:"Plain-language updates",c:"Avoid internal service codes in notifications."},{t:"High-contrast compatibility",c:"Strengthen borders and state labels."},{t:"Share audio for transcription",c:"Only applies when you attach a voice report."},{t:"Keep evidence after resolution",c:"Default retention follows the synthetic 90-day policy."}];
+export function SettingsForm(){const [values,setValues]=useState([true,true,false,false]);function save(){localStorage.setItem("nivaran-preferences",JSON.stringify(values));toast.success("Preferences saved on this device")};return <><div className="mt-7 divide-y border bg-card">{items.map((x,i)=><label key={x.t} className="flex items-center justify-between gap-5 p-5"><span><b>{x.t}</b><small className="mt-1 block text-muted-foreground">{x.c}</small></span><Switch checked={values[i]} onCheckedChange={v=>setValues(a=>a.map((x,n)=>n===i?v:x))}/></label>)}</div><Button className="mt-5" onClick={save}>Save preferences</Button></>}
+
