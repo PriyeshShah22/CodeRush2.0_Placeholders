@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, CheckCircle2, FileCheck2, Loader2, MapPin, Paperclip, Play, Route, ShieldCheck } from "lucide-react";
+import { Check, CheckCircle2, FileCheck2, FlaskConical, Loader2, MapPin, Paperclip, Play, Route, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { API_URL, api, Complaint } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useLanguage } from "./language-provider";
+import { RecoveryCountdown } from "./recovery-countdown";
+import type { NotificationItem } from "./notification-bell";
 
 type Evidence = {
   id: string;
@@ -25,7 +27,7 @@ type TaskData = {
   assignment: { id: string; status: string; kind: string };
   complaint: Complaint;
   dependencies: { id: string }[];
-  sla?: { resolution_due_at: string };
+  sla?: { acknowledgement_due_at?: string; resolution_due_at: string; department_breached_at?: string };
   evidence: Evidence[];
 };
 
@@ -43,6 +45,7 @@ export function TaskWorkspace({ id }: { id: string }) {
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [busyAction, setBusyAction] = useState("");
+  const [adminRequests,setAdminRequests]=useState<NotificationItem[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -59,8 +62,11 @@ export function TaskWorkspace({ id }: { id: string }) {
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
+    void api<{data:NotificationItem[]}>("/notifications").then(response=>setAdminRequests(response.data.filter(item=>item.kind==="admin_recovery_target"||item.kind==="admin_update_requested"))).catch(()=>setAdminRequests([]));
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  async function simulateBreach(){if(!detail)return;setBusyAction("sla");try{await api(`/complaints/${detail.complaint.id}/sla/simulate`,{method:"POST",body:JSON.stringify({stage:"department"})});toast.success(tr("Department breach sent to Admin"));await load();}catch{toast.error(tr("Simulation failed"));}finally{setBusyAction("");}}
 
   async function update(next: "acknowledged" | "in_progress" | "resolution_submitted") {
     if (!detail) return;
@@ -121,9 +127,11 @@ export function TaskWorkspace({ id }: { id: string }) {
   const { complaint, assignment: taskAssignment, dependencies, sla, evidence } = detail;
   const proofs = evidence.filter((item) => item.is_resolution_proof);
   const canAddProof = taskAssignment.status === "in_progress";
+  const hasRecoveryTarget=adminRequests.some(item=>item.complaint_id===complaint.id&&item.kind==="admin_recovery_target");
 
   return (
     <div className="mx-auto max-w-6xl">
+      {hasRecoveryTarget&&sla?<div className="mb-5"><RecoveryCountdown dueAt={sla.resolution_due_at}/></div>:null}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="eyebrow">{complaint.reference_number} · {assignment(taskAssignment.kind)}</p>
@@ -146,7 +154,7 @@ export function TaskWorkspace({ id }: { id: string }) {
           <div className="mt-5 grid gap-px border bg-border sm:grid-cols-3">
             <div className="bg-card p-4"><span className="text-xs text-muted-foreground">{tr("Complaint category")}</span><b className="mt-1 block text-sm">{category(complaint.category)}</b></div>
             <div className="bg-card p-4"><span className="text-xs text-muted-foreground">{tr("Approved priority")}</span><b className="mt-1 block text-sm">{priority(complaint.priority)}</b></div>
-            <div className="bg-card p-4"><span className="text-xs text-muted-foreground">{tr("Resolution deadline")}</span><b className="mt-1 block text-sm">{sla ? date(sla.resolution_due_at) : tr("Pending review")}</b></div>
+            <div className="bg-card p-4"><span className="text-xs text-muted-foreground">{tr("Resolution deadline")}</span><b className="mt-1 block text-sm">{sla ? date(sla.resolution_due_at) : tr("Pending review")}</b>{sla?<Button variant="ghost" size="sm" className="mt-2 px-0 text-amber-800 hover:text-amber-900" disabled={Boolean(busyAction)||Boolean(sla.department_breached_at)} onClick={()=>void simulateBreach()}><FlaskConical/>{busyAction==="sla"?tr("Running…"):sla.department_breached_at?tr("Escalated to Admin"):tr("Simulate breach")}</Button>:null}</div>
           </div>
           <div className="mt-5 space-y-5 border p-4 sm:p-5">
             <div>

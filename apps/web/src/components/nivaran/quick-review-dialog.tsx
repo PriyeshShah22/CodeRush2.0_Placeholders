@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Clock3, Loader2, MapPin, Pencil } from "lucide-react";
+import { Check, Clock3, Loader2, MapPin, Pencil, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, Complaint } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +30,7 @@ type Department = { id: string; name: string };
 type Detail = {
   complaint: Complaint;
   routes: { department_id: string; department: string }[];
-  sla?: { resolution_due_at: string };
+  sla?: { resolution_due_at: string; review_due_at?: string };
 };
 const categories = [
   "roads",
@@ -133,6 +133,15 @@ export function QuickReviewDialog({
       setBusy(false);
     }
   }
+  async function reject() {
+    if (!detail || !window.confirm(tr("Reject this complaint? The resident will be notified."))) return;
+    setBusy(true); setError("");
+    try {
+      await api(`/reviewer/complaints/${complaint.id}/reject`,{method:"POST",body:JSON.stringify({reason:"Not a municipal service request",expected_version:detail.complaint.version})});
+      toast.success(tr("Complaint rejected and resident notified")); setOpen(false); onComplete?.();
+    } catch { setError(tr("Rejection failed")); }
+    finally { setBusy(false); }
+  }
   return (
     <Dialog open={open} onOpenChange={(next)=>{setOpen(next);if(next){setBusy(true);setError("")}}}>
       <DialogTrigger asChild>
@@ -183,6 +192,7 @@ export function QuickReviewDialog({
                   <MapPin className="mt-0.5 size-4 text-civic" />
                   {location(detail.complaint.location_text)}
                 </p>
+                {detail.sla?.review_due_at?<p className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-amber-800"><Clock3 className="size-3"/>{tr("Human review due {date}",{date:new Date(detail.sla.review_due_at).toLocaleString()})}</p>:null}
               </div>
               <button
                 type="button"
@@ -290,6 +300,7 @@ export function QuickReviewDialog({
           </p>
         ) : null}
         <DialogFooter>
+          <Button variant="ghost" className="mr-auto text-destructive hover:text-destructive" onClick={()=>void reject()} disabled={busy}><X/>{tr("Reject")}</Button>
           <Button variant="outline" onClick={() => setOpen(false)}>
             {tr("Cancel")}
           </Button>

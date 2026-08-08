@@ -2,17 +2,19 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowRight, Check, Loader2, MapPin } from "lucide-react";
+import { ArrowRight, Check, FlaskConical, Loader2, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { api, Complaint } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "./language-provider";
+import { RecoveryCountdown } from "./recovery-countdown";
+import type { NotificationItem } from "./notification-bell";
 
 type Task = {
   assignment: { id: string; kind: string; status: string; assigned_at: string };
   complaint: Complaint;
-  sla?: { resolution_due_at: string };
+  sla?: { resolution_due_at: string; department_breached_at?: string };
 };
 
 function complaintCopy(complaint: Complaint, locale: "en" | "hi" | "mr") {
@@ -27,6 +29,8 @@ export function DepartmentTasks({ compact = false }: { compact?: boolean }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
+  const [simulating,setSimulating]=useState("");
+  const [recoveryTargets,setRecoveryTargets]=useState<NotificationItem[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -42,8 +46,11 @@ export function DepartmentTasks({ compact = false }: { compact?: boolean }) {
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
+    void api<{data:NotificationItem[]}>("/notifications").then(response=>setRecoveryTargets(response.data.filter(item=>item.kind==="admin_recovery_target"))).catch(()=>setRecoveryTargets([]));
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  async function simulate(complaintId:string){setSimulating(complaintId);try{await api(`/complaints/${complaintId}/sla/simulate`,{method:"POST",body:JSON.stringify({stage:"department"})});toast.success(tr("Department breach sent to Admin"));await load();}catch{toast.error(tr("Simulation failed"));}finally{setSimulating("");}}
 
   async function acknowledge(task: Task) {
     setBusyId(task.assignment.id);
@@ -79,8 +86,11 @@ export function DepartmentTasks({ compact = false }: { compact?: boolean }) {
       </p>
     );
 
+  const recoveryIds=new Set(recoveryTargets.map(item=>item.complaint_id));
+  const urgentTasks=rows.filter(row=>row.sla&&recoveryIds.has(row.complaint.id));
   return (
     <div className="space-y-3">
+      {urgentTasks.length?<section className="border-2 border-amber-400 bg-amber-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-amber-950">{tr("Urgent admin recovery targets")}</p><p className="mt-1 text-sm text-amber-950">{tr("These delayed complaints have a recovery deadline set by Admin.")}</p><div className="mt-3 grid gap-2">{urgentTasks.map(({assignment:taskAssignment,complaint,sla})=><Link key={taskAssignment.id} href={`/department/tasks/${taskAssignment.id}`} className="flex flex-wrap items-center justify-between gap-3 border border-amber-300 bg-white px-3 py-2 hover:bg-amber-100"><span><b className="font-mono text-sm">{complaint.reference_number}</b><span className="ml-2 text-sm">{complaintCopy(complaint,locale)}</span></span><RecoveryCountdown dueAt={sla!.resolution_due_at} compact/></Link>)}</div></section>:null}
       {rows.slice(0, compact ? 4 : 20).map((task) => {
         const { assignment: taskAssignment, complaint, sla } = task;
         const isBusy = busyId === taskAssignment.id;
@@ -110,8 +120,9 @@ export function DepartmentTasks({ compact = false }: { compact?: boolean }) {
             <div>
               <span className="text-xs text-muted-foreground">{tr("Resolution deadline")}</span>
               <b className="mt-1 block text-sm">{sla ? date(sla.resolution_due_at) : tr("Pending review")}</b>
+              {sla&&recoveryIds.has(complaint.id)?<div className="mt-1"><RecoveryCountdown dueAt={sla.resolution_due_at} compact/></div>:null}
             </div>
-            {taskAssignment.status === "assigned" ? (
+            <div className="flex items-center gap-1"><Button size="sm" variant="ghost" disabled={Boolean(simulating)||Boolean(sla?.department_breached_at)} onClick={()=>void simulate(complaint.id)} title={tr("Simulate department SLA breach")}><FlaskConical/>{simulating===complaint.id?tr("Running…"):sla?.department_breached_at?tr("Escalated"):tr("SLA demo")}</Button>{taskAssignment.status === "assigned" ? (
               <Button size="sm" onClick={() => void acknowledge(task)} disabled={isBusy}>
                 {isBusy ? <Loader2 className="animate-spin" /> : <Check />}
                 {isBusy ? tr("Acknowledging") : tr("Acknowledge")}
@@ -122,7 +133,7 @@ export function DepartmentTasks({ compact = false }: { compact?: boolean }) {
                   {tr("Open")} <ArrowRight />
                 </Link>
               </Button>
-            )}
+            )}</div>
           </article>
         );
       })}

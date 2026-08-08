@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
 import { useLanguage } from "./language-provider";
+import { NotificationBell } from "./notification-bell";
 
 const nav = {
   resident: [
@@ -124,9 +125,7 @@ export function PortalShell({
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <span className="hidden text-xs text-muted-foreground sm:block">
-              {t("notifications")}
-            </span>
+            <NotificationBell />
             <LanguagePicker />
           </div>
         </header>
